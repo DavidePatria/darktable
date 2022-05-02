@@ -413,7 +413,7 @@ dt_imageio_retval_t dt_imageio_open_tiff(dt_image_t *img, const char *filename, 
 
   t.image->buf_dsc.channels = 4;
   t.image->buf_dsc.datatype = TYPE_FLOAT;
-  t.image->buf_dsc.cst = iop_cs_rgb;
+  t.image->buf_dsc.cst = IOP_CS_RGB;
 
   t.mipbuf = (float *)dt_mipmap_cache_alloc(mbuf, t.image);
   if(!t.mipbuf)
@@ -448,12 +448,12 @@ dt_imageio_retval_t dt_imageio_open_tiff(dt_image_t *img, const char *filename, 
   if((photometric == PHOTOMETRIC_CIELAB || photometric == PHOTOMETRIC_ICCLAB) && t.bpp == 8 && t.sampleformat == SAMPLEFORMAT_UINT)
   {
     ok = _read_chunky_8_Lab(&t, photometric);
-    t.image->buf_dsc.cst = iop_cs_Lab;
+    t.image->buf_dsc.cst = IOP_CS_LAB;
   }
   else if((photometric == PHOTOMETRIC_CIELAB || photometric == PHOTOMETRIC_ICCLAB) && t.bpp == 16 && t.sampleformat == SAMPLEFORMAT_UINT)
   {
     ok = _read_chunky_16_Lab(&t, photometric);
-    t.image->buf_dsc.cst = iop_cs_Lab;
+    t.image->buf_dsc.cst = IOP_CS_LAB;
   }
   else if(t.bpp == 8 && t.sampleformat == SAMPLEFORMAT_UINT)
     ok = _read_chunky_8(&t);
@@ -472,7 +472,13 @@ dt_imageio_retval_t dt_imageio_open_tiff(dt_image_t *img, const char *filename, 
   _TIFFfree(t.buf);
   TIFFClose(t.tiff);
 
-  return (ok == 1 ? DT_IMAGEIO_OK : DT_IMAGEIO_FILE_CORRUPTED);
+  if(ok == 1)
+  {
+    img->loader = LOADER_TIFF;
+    return DT_IMAGEIO_OK;
+  }
+  else
+    return DT_IMAGEIO_FILE_CORRUPTED;
 }
 
 int dt_imageio_tiff_read_profile(const char *filename, uint8_t **out)
@@ -523,6 +529,9 @@ int dt_imageio_tiff_read_profile(const char *filename, uint8_t **out)
   return profile_len;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

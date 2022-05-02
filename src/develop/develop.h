@@ -114,7 +114,8 @@ typedef enum dt_dev_pixelpipe_display_mask_t
   DT_DEV_PIXELPIPE_DISPLAY_JzCzhz_Jz = 13 << 3,
   DT_DEV_PIXELPIPE_DISPLAY_JzCzhz_Cz = 14 << 3,
   DT_DEV_PIXELPIPE_DISPLAY_JzCzhz_hz = 15 << 3,
-  DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU = 16 << 3,  //show module's output without processing by later iops
+  DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU = 16 << 3, // show module's output without processing by later iops
+  DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU_MONO = 17 << 3, // same as above but specific for pre-demosaic to stay monochrome
   DT_DEV_PIXELPIPE_DISPLAY_ANY = 0xff << 2,
   DT_DEV_PIXELPIPE_DISPLAY_STICKY = 1 << 16
 } dt_dev_pixelpipe_display_mask_t;
@@ -269,7 +270,7 @@ typedef struct dt_develop_t
       void (*list_remove)(struct dt_lib_module_t *self, int formid, int parentid);
       void (*list_update)(struct dt_lib_module_t *self);
       /* selected forms change */
-      void (*selection_change)(struct dt_lib_module_t *self, int selectid, int throw_event);
+      void (*selection_change)(struct dt_lib_module_t *self, struct dt_iop_module_t *module, const int selectid, const int throw_event);
     } masks;
 
     // what is the ID of the module currently doing pipeline chromatic adaptation ?
@@ -447,7 +448,7 @@ void dt_dev_average_delay_update(const dt_times_t *start, uint32_t *average_dela
 void dt_dev_masks_list_change(dt_develop_t *dev);
 void dt_dev_masks_list_update(dt_develop_t *dev);
 void dt_dev_masks_list_remove(dt_develop_t *dev, int formid, int parentid);
-void dt_dev_masks_selection_change(dt_develop_t *dev, int selectid, int throw_event);
+void dt_dev_masks_selection_change(dt_develop_t *dev, struct dt_iop_module_t *module, const int selectid, const int throw_event);
 
 /*
  * multi instances
@@ -538,6 +539,9 @@ void dt_second_window_check_zoom_bounds(dt_develop_t *dev, float *zoom_x, float 
 void dt_dev_undo_start_record(dt_develop_t *dev);
 void dt_dev_undo_end_record(dt_develop_t *dev);
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

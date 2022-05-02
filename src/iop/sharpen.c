@@ -85,10 +85,10 @@ int flags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_LAB;
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("sharpen the details in the image using a standard UnSharp Mask (USM)"),
                                       _("corrective"),
@@ -197,7 +197,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
 
   /* horizontal blur */
   sizes[0] = bwidth;
-  sizes[1] = ROUNDUPHT(height);
+  sizes[1] = ROUNDUPDHT(height, devid);
   sizes[2] = 1;
   local[0] = hblocksize;
   local[1] = 1;
@@ -214,7 +214,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   if(err != CL_SUCCESS) goto error;
 
   /* vertical blur */
-  sizes[0] = ROUNDUPWD(width);
+  sizes[0] = ROUNDUPDWD(width, devid);
   sizes[1] = bheight;
   sizes[2] = 1;
   local[0] = 1;
@@ -232,8 +232,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   if(err != CL_SUCCESS) goto error;
 
   /* mixing tmp and in -> out */
-  sizes[0] = ROUNDUPWD(width);
-  sizes[1] = ROUNDUPHT(height);
+  sizes[0] = ROUNDUPDWD(width, devid);
+  sizes[1] = ROUNDUPDHT(height, devid);
   sizes[2] = 1;
   dt_opencl_set_kernel_arg(devid, gd->kernel_sharpen_mix, 0, sizeof(cl_mem), (void *)&dev_in);
   dt_opencl_set_kernel_arg(devid, gd->kernel_sharpen_mix, 1, sizeof(cl_mem), (void *)&dev_tmp);
@@ -420,15 +420,6 @@ void cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev
   piece->data = NULL;
 }
 
-void gui_update(struct dt_iop_module_t *self)
-{
-  dt_iop_sharpen_gui_data_t *g = (dt_iop_sharpen_gui_data_t *)self->gui_data;
-  dt_iop_sharpen_params_t *p = (dt_iop_sharpen_params_t *)self->params;
-  dt_bauhaus_slider_set_soft(g->radius, p->radius);
-  dt_bauhaus_slider_set(g->amount, p->amount);
-  dt_bauhaus_slider_set(g->threshold, p->threshold);
-}
-
 void init_global(dt_iop_module_so_t *module)
 {
   const int program = 7; // sharpen.cl, from programs.conf
@@ -456,23 +447,23 @@ void gui_init(struct dt_iop_module_t *self)
 
   g->radius = dt_bauhaus_slider_from_params(self, N_("radius"));
   dt_bauhaus_slider_set_soft_max(g->radius, 8.0);
-  dt_bauhaus_slider_set_step(g->radius, 0.1);
   dt_bauhaus_slider_set_digits(g->radius, 3);
   gtk_widget_set_tooltip_text(g->radius, _("spatial extent of the unblurring"));
 
   g->amount = dt_bauhaus_slider_from_params(self, N_("amount"));
-  dt_bauhaus_slider_set_step(g->amount, 0.01);
   dt_bauhaus_slider_set_digits(g->amount, 3);
   gtk_widget_set_tooltip_text(g->amount, _("strength of the sharpen"));
 
   g->threshold = dt_bauhaus_slider_from_params(self, N_("threshold"));
-  dt_bauhaus_slider_set_step(g->threshold, 0.1);
   dt_bauhaus_slider_set_digits(g->threshold, 3);
   gtk_widget_set_tooltip_text(g->threshold, _("threshold to activate sharpen"));
 }
 
 #undef MAXR
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

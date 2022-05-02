@@ -147,7 +147,7 @@ const char *name()
   return _("color mapping");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("transfer a color palette and tonal repartition from one image to another"),
                                       _("creative"),
@@ -168,7 +168,7 @@ int flags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_LAB;
 }
 
 static void capture_histogram(const float *col, const int width, const int height, int *hist)
@@ -670,7 +670,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     dev_mapio = dt_opencl_copy_host_to_device_constant(devid, sizeof(int) * MAXN, mapio);
     if(dev_mapio == NULL) goto error;
 
-    size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+    size_t sizes[3] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
 
     dt_opencl_set_kernel_arg(devid, gd->kernel_histogram, 0, sizeof(cl_mem), (void *)&dev_in);
     dt_opencl_set_kernel_arg(devid, gd->kernel_histogram, 1, sizeof(cl_mem), (void *)&dev_out);
@@ -781,7 +781,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
   memcpy(d, p, sizeof(dt_iop_colormapping_params_t));
 #ifdef HAVE_OPENCL
   if(d->equalization > 0.1f)
-    piece->process_cl_ready = (piece->process_cl_ready && !(darktable.opencl->avoid_atomics));
+    piece->process_cl_ready = (piece->process_cl_ready && !dt_opencl_avoid_atomics(pipe->devid));
 #endif
 }
 
@@ -838,16 +838,6 @@ void cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev
 {
   free(piece->data);
   piece->data = NULL;
-}
-
-void gui_update(struct dt_iop_module_t *self)
-{
-  dt_iop_colormapping_params_t *p = (dt_iop_colormapping_params_t *)self->params;
-  dt_iop_colormapping_gui_data_t *g = (dt_iop_colormapping_gui_data_t *)self->gui_data;
-  dt_bauhaus_slider_set(g->clusters, p->n);
-  dt_bauhaus_slider_set(g->dominance, p->dominance);
-  dt_bauhaus_slider_set(g->equalization, p->equalization);
-  dt_control_queue_redraw_widget(self->widget);
 }
 
 void init_global(dt_iop_module_so_t *module)
@@ -1081,11 +1071,11 @@ void gui_init(struct dt_iop_module_t *self)
   g->dominance = dt_bauhaus_slider_from_params(self, "dominance");
   gtk_widget_set_tooltip_text(g->dominance, _("how clusters are mapped. low values: based on color "
                                               "proximity, high values: based on color dominance"));
-  dt_bauhaus_slider_set_format(g->dominance, "%.02f%%");
+  dt_bauhaus_slider_set_format(g->dominance, "%");
 
   g->equalization = dt_bauhaus_slider_from_params(self, "equalization");
   gtk_widget_set_tooltip_text(g->equalization, _("level of histogram equalization"));
-  dt_bauhaus_slider_set_format(g->equalization, "%.02f%%");
+  dt_bauhaus_slider_set_format(g->equalization, "%");
 
   /* add signal handler for preview pipe finished: process clusters if requested */
   DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_DEVELOP_PREVIEW_PIPE_FINISHED,
@@ -1111,6 +1101,9 @@ void gui_cleanup(struct dt_iop_module_t *self)
   IOP_GUI_FREE;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

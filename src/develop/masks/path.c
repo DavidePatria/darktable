@@ -47,18 +47,24 @@ static void _path_get_XY(float p0x, float p0y, float p1x, float p1y, float p2x, 
 static void _path_border_get_XY(float p0x, float p0y, float p1x, float p1y, float p2x, float p2y, float p3x,
                                 float p3y, float t, float rad, float *xc, float *yc, float *xb, float *yb)
 {
+  // we use double precision math here to avoid rounding issues in paths with sharp corners
   // we get the point
   _path_get_XY(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, t, xc, yc);
 
   // now we get derivative points
-  const float ti = 1.0f - t;
-  const float a = 3.0f * ti * ti;
-  const float b = 3.0f * (ti * ti - 2.0f * t * ti);
-  const float c = 3.0f * (2.0f * t * ti - t * t);
-  const float d = 3.0f * sqf(t);
+  const double ti = 1.0 - (double)t;
 
-  const float dx = -p0x * a + p1x * b + p2x * c + p3x * d;
-  const float dy = -p0y * a + p1y * b + p2y * c + p3y * d;
+  const double t_t = (double)t * t;
+  const double ti_ti = ti * ti;
+  const double t_ti = t * ti;
+
+  const double a = 3.0 * ti_ti;
+  const double b = 3.0 * (ti_ti - 2.0 * t_ti);
+  const double c = 3.0 * (2.0 * t_ti - t_t);
+  const double d = 3.0 * t_t;
+
+  const double dx = -p0x * a + p1x * b + p2x * c + p3x * d;
+  const double dy = -p0y * a + p1y * b + p2y * c + p3y * d;
 
   // so we can have the resulting point
   if(dx == 0 && dy == 0)
@@ -67,14 +73,14 @@ static void _path_border_get_XY(float p0x, float p0y, float p1x, float p1y, floa
     *yb = NAN;
     return;
   }
-  const float l = 1.0f / sqrtf(sqf(dx) + sqf(dy));
+  const double l = 1.0 / sqrt(dx * dx + dy * dy);
   *xb = (*xc) + rad * dy * l;
   *yb = (*yc) - rad * dx * l;
 }
 
 /** get feather extremity from the control point n°2 */
 /** the values should be in orthonormal space */
-static void _path_ctrl2_to_feather(int ptx, int pty, int ctrlx, int ctrly, int *fx, int *fy,
+static void _path_ctrl2_to_feather(float ptx, float pty, float ctrlx, float ctrly, float *fx, float *fy,
                                    gboolean clockwise)
 {
   if(clockwise)
@@ -91,8 +97,9 @@ static void _path_ctrl2_to_feather(int ptx, int pty, int ctrlx, int ctrly, int *
 
 /** get bezier control points from feather extremity */
 /** the values should be in orthonormal space */
-static void _path_feather_to_ctrl(int ptx, int pty, int fx, int fy, int *ctrl1x, int *ctrl1y, int *ctrl2x,
-                                  int *ctrl2y, gboolean clockwise)
+static void _path_feather_to_ctrl(float ptx, float pty, float fx, float fy,
+                                  float *ctrl1x, float *ctrl1y, float *ctrl2x, float *ctrl2y,
+                                  gboolean clockwise)
 {
   if(clockwise)
   {
@@ -283,13 +290,13 @@ static void _path_points_recurs_border_gaps(float *cmax, float *bmin, float *bmi
   float *dborder_ptr = dborder ? dt_masks_dynbuf_reserve_n(dborder, 2*(l-1)) : NULL;
   // and fill them in: the same center pos for each point in dpoints, and the corresponding border point at
   //  successive angular positions for dborder
-  if (dpoints_ptr)
+  if(dpoints_ptr)
   {
     for(int i = 1; i < l; i++)
     {
       *dpoints_ptr++ = cmax[0];
       *dpoints_ptr++ = cmax[1];
-      if (dborder_ptr)
+      if(dborder_ptr)
       {
         *dborder_ptr++ = cmax[0] + rr * cosf(aa);
         *dborder_ptr++ = cmax[1] + rr * sinf(aa);
@@ -515,7 +522,7 @@ static int _path_find_self_intersection(dt_masks_dynbuf_t *inter, int nb_corners
 /** this take care of gaps and self-intersection and iop distortions */
 static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const double iop_order, const int transf_direction,
                                    dt_dev_pixelpipe_t *pipe, float **points, int *points_count,
-                                   float **border, int *border_count, int source)
+                                   float **border, int *border_count, gboolean source)
 {
   double start2 = 0.0;
 
@@ -565,7 +572,7 @@ static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const 
   {
     const dt_masks_point_path_t *const pt = (dt_masks_point_path_t *)l->data;
     float *const buf = dt_masks_dynbuf_reserve_n(dpoints, 6);
-    if (buf)
+    if(buf)
     {
       buf[0] = pt->ctrl1[0] * wd - dx;
       buf[1] = pt->ctrl1[1] * ht - dy;
@@ -596,7 +603,7 @@ static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const 
   const GList *form_points = form->points;
   for(int k = 0; k < nb; k++)
   {
-    int pb = dborder ? dt_masks_dynbuf_position(dborder) : 0;
+    const int pb = dborder ? dt_masks_dynbuf_position(dborder) : 0;
     border_init[k * 6 + 2] = -pb;
     const GList *pt2 = g_list_next_wraparound(form_points, form->points); // next, wrapping around if on last element
     const GList *pt3 = g_list_next_wraparound(pt2, form->points);
@@ -625,8 +632,8 @@ static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const 
     _path_points_recurs(p1, p2, 0.0, 1.0, cmin, cmax, bmin, bmax, rc, rb, dpoints, dborder, border && (nb >= 3));
 
     // we check gaps in the border (sharp edges)
-    if(dborder && (fabs(dt_masks_dynbuf_get(dborder, -2) - rb[0]) > 1.0f ||
-                   fabs(dt_masks_dynbuf_get(dborder, -1) - rb[1]) > 1.0f))
+    if(dborder && (fabs(dt_masks_dynbuf_get(dborder, -2) - rb[0]) > 1.0f
+                   || fabs(dt_masks_dynbuf_get(dborder, -1) - rb[1]) > 1.0f))
     {
       bmin[0] = dt_masks_dynbuf_get(dborder, -2);
       bmin[1] = dt_masks_dynbuf_get(dborder, -1);
@@ -658,11 +665,13 @@ static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const 
     if(dborder && nb >= 3)
     {
       // we get the next point (start of the next segment)
-      _path_border_get_XY(p3[0], p3[1], p3[2], p3[3], p4[2], p4[3], p4[0], p4[1], 0, p3[4], cmin, cmin + 1,
+      // t=0.00001f to workaround rounding effects with full optimization that result in bmax[0] NOT being set to
+      // NAN when t=0 and the two points in p3 are identical (as is the case on a control node set to sharp corner)
+      _path_border_get_XY(p3[0], p3[1], p3[2], p3[3], p4[2], p4[3], p4[0], p4[1], 0.00001f, p3[4], cmin, cmin + 1,
                           bmax, bmax + 1);
       if(isnan(bmax[0]))
       {
-        _path_border_get_XY(p3[0], p3[1], p3[2], p3[3], p4[2], p4[3], p4[0], p4[1], 0.0001, p3[4], cmin,
+        _path_border_get_XY(p3[0], p3[1], p3[2], p3[3], p4[2], p4[3], p4[0], p4[1], 0.00001f, p3[4], cmin,
                             cmin + 1, bmax, bmax + 1);
       }
       if(bmax[0] - rb[0] > 1 || bmax[0] - rb[0] < -1 || bmax[1] - rb[1] > 1 || bmax[1] - rb[1] < -1)
@@ -717,8 +726,9 @@ static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const 
       float pts[2] = { form->source[0] * wd, form->source[1] * ht };
       if(!dt_dev_distort_transform_plus(dev, pipe, iop_order, DT_DEV_TRANSFORM_DIR_BACK_EXCL, pts, 1)) goto fail;
 
-      dx = pts[0] - (*points)[0];
-      dy = pts[1] - (*points)[1];
+      dx = pts[0] - (*points)[2];
+      dy = pts[1] - (*points)[3];
+
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
     dt_omp_firstprivate(points_count, points, dx, dy) \
@@ -726,7 +736,7 @@ static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const 
 #endif
       for(int i = 0; i < *points_count; i++)
       {
-        (*points)[i * 2] += dx;
+        (*points)[i * 2]     += dx;
         (*points)[i * 2 + 1] += dy;
       }
 
@@ -764,8 +774,8 @@ static int _path_get_pts_border(dt_develop_t *dev, dt_masks_form_t *form, const 
         // now we want to write the skipping zones
         for(int i = 0; i < inter_count; i++)
         {
-          int v = (dt_masks_dynbuf_buffer(intersections))[i * 2];
-          int w = (dt_masks_dynbuf_buffer(intersections))[ i * 2 + 1];
+          const int v = (dt_masks_dynbuf_buffer(intersections))[i * 2];
+          const int w = (dt_masks_dynbuf_buffer(intersections))[ i * 2 + 1];
           if(v <= w)
           {
             (*border)[v * 2] = NAN;
@@ -868,7 +878,7 @@ static void _path_get_distance(float x, float y, float as, dt_masks_form_gui_t *
   // and we check if it's inside form
   if(gpt->points_count > 2 + corner_count * 3)
   {
-    float as2 = as * as;
+    const float as2 = as * as;
     //float as2 = 1600.0 * as1;
     float last = gpt->points[gpt->points_count * 2 - 1];
     int nb = 0;
@@ -914,7 +924,7 @@ static void _path_get_distance(float x, float y, float as, dt_masks_form_gui_t *
           *near = current_seg - 1;
       }
 
-      if (((y<=yy && y>last) || (y>=yy && y<last)) && (gpt->points[i * 2] > x)) nb++;
+      if(((y<=yy && y>last) || (y>=yy && y<last)) && (gpt->points[i * 2] > x)) nb++;
 
       last = yy;
     }
@@ -1007,7 +1017,7 @@ static int _path_events_mouse_scrolled(struct dt_iop_module_t *module, float pzx
     }
     else
     {
-      const float amount = up ? 0.97f : 1.03f;
+      const float amount = up ? 1.03f : 0.97f;
       // resize don't care where the mouse is inside a shape
       if(dt_modifier_is(state, GDK_SHIFT_MASK))
       {
@@ -1131,7 +1141,8 @@ static int _path_events_button_pressed(struct dt_iop_module_t *module, float pzx
     masks_border = MIN(dt_conf_get_float("plugins/darkroom/masks/path/border"), 0.5f);
 
   if(gui->creation && which == 1 && form->points == NULL
-     && (dt_modifier_is(state, GDK_CONTROL_MASK | GDK_SHIFT_MASK) || dt_modifier_is(state, GDK_SHIFT_MASK)))
+     && (dt_modifier_is(state, GDK_CONTROL_MASK | GDK_SHIFT_MASK)
+         || dt_modifier_is(state, GDK_SHIFT_MASK)))
   {
     // set some absolute or relative position for the source of the clone mask
     if(form->type & DT_MASKS_CLONE) dt_masks_set_source_pos_initial_state(gui, state, pzx, pzy);
@@ -1172,16 +1183,19 @@ static int _path_events_button_pressed(struct dt_iop_module_t *module, float pzx
         dt_dev_add_history_item(darktable.develop, crea_module, TRUE);
         // and we switch in edit mode to show all the forms
         // spots and retouch have their own handling of creation_continuous
-        if(gui->creation_continuous && ( strcmp(crea_module->so->op, "spots") == 0 || strcmp(crea_module->so->op, "retouch") == 0))
+        if(gui->creation_continuous
+           && (strcmp(crea_module->so->op, "spots") == 0
+               || strcmp(crea_module->so->op, "retouch") == 0))
           dt_masks_set_edit_mode_single_form(crea_module, form->formid, DT_MASKS_EDIT_FULL);
         else if(!gui->creation_continuous)
           dt_masks_set_edit_mode(crea_module, DT_MASKS_EDIT_FULL);
         dt_masks_iop_update(crea_module);
+        dt_dev_masks_selection_change(darktable.develop, crea_module, form->formid, TRUE);
         gui->creation_module = NULL;
       }
       else
       {
-        dt_dev_masks_selection_change(darktable.develop, form->formid, TRUE);
+        dt_dev_masks_selection_change(darktable.develop, NULL, form->formid, TRUE);
       }
 
       if(gui->creation_continuous)
@@ -1305,8 +1319,9 @@ static int _path_events_button_pressed(struct dt_iop_module_t *module, float pzx
       if(!gpt) return 0;
       // we start the form dragging
       gui->source_dragging = TRUE;
-      gui->dx = gpt->source[0] - gui->posx;
-      gui->dy = gpt->source[1] - gui->posy;
+      gui->point_edited = -1;
+      gui->dx = gpt->source[2] - gui->posx;
+      gui->dy = gpt->source[3] - gui->posy;
       return 1;
     }
     else if(gui->form_selected && gui->edit_mode == DT_MASKS_EDIT_FULL)
@@ -1656,14 +1671,15 @@ static int _path_events_button_released(struct dt_iop_module_t *module, float pz
     float pts[2] = { pzx * wd, pzy * ht };
     dt_dev_distort_backtransform(darktable.develop, pts, 1);
 
-    int p1x, p1y, p2x, p2y;
+    float p1x, p1y, p2x, p2y;
     _path_feather_to_ctrl(point->corner[0] * darktable.develop->preview_pipe->iwidth,
-                          point->corner[1] * darktable.develop->preview_pipe->iheight, pts[0], pts[1], &p1x,
-                          &p1y, &p2x, &p2y, gpt->clockwise);
-    point->ctrl1[0] = (float)p1x / darktable.develop->preview_pipe->iwidth;
-    point->ctrl1[1] = (float)p1y / darktable.develop->preview_pipe->iheight;
-    point->ctrl2[0] = (float)p2x / darktable.develop->preview_pipe->iwidth;
-    point->ctrl2[1] = (float)p2y / darktable.develop->preview_pipe->iheight;
+                          point->corner[1] * darktable.develop->preview_pipe->iheight,
+                          pts[0], pts[1],
+                          &p1x, &p1y, &p2x, &p2y, gpt->clockwise);
+    point->ctrl1[0] = p1x / darktable.develop->preview_pipe->iwidth;
+    point->ctrl1[1] = p1y / darktable.develop->preview_pipe->iheight;
+    point->ctrl2[0] = p2x / darktable.develop->preview_pipe->iwidth;
+    point->ctrl2[1] = p2y / darktable.develop->preview_pipe->iheight;
 
     point->state = DT_MASKS_POINT_STATE_USER;
 
@@ -1707,16 +1723,17 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
   dt_masks_form_gui_points_t *gpt = (dt_masks_form_gui_points_t *)g_list_nth_data(gui->points, index);
   if(!gpt) return 0;
 
+  const float wd = darktable.develop->preview_pipe->backbuf_width;
+  const float ht = darktable.develop->preview_pipe->backbuf_height;
+
   if(gui->point_dragging >= 0)
   {
-    const float wd = darktable.develop->preview_pipe->backbuf_width;
-    const float ht = darktable.develop->preview_pipe->backbuf_height;
     float pts[2] = { pzx * wd, pzy * ht };
     if(gui->creation && !g_list_shorter_than(form->points, 4))
     {
       // if we are near the first point, we have to say that the form should be closed
-      if(pts[0] - gpt->points[2] < as && pts[0] - gpt->points[2] > -as && pts[1] - gpt->points[3] < as
-         && pts[1] - gpt->points[3] > -as)
+      if(pts[0] - gpt->points[2] < as && pts[0] - gpt->points[2] > -as
+         && pts[1] - gpt->points[3] < as && pts[1] - gpt->points[3] > -as)
       {
         gui->creation_closing_form = TRUE;
       }
@@ -1730,13 +1747,24 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
     dt_masks_point_path_t *bzpt = (dt_masks_point_path_t *)g_list_nth_data(form->points, gui->point_dragging);
     pzx = pts[0] / darktable.develop->preview_pipe->iwidth;
     pzy = pts[1] / darktable.develop->preview_pipe->iheight;
+
+    // if first point, adjust the source accordingly
+    if((form->type & DT_MASKS_CLONE)
+       && gui->point_dragging == 0)
+    {
+      form->source[0] += (pzx - bzpt->corner[0]);
+      form->source[1] += (pzy - bzpt->corner[1]);
+    }
+
     bzpt->ctrl1[0] += pzx - bzpt->corner[0];
     bzpt->ctrl2[0] += pzx - bzpt->corner[0];
     bzpt->ctrl1[1] += pzy - bzpt->corner[1];
     bzpt->ctrl2[1] += pzy - bzpt->corner[1];
     bzpt->corner[0] = pzx;
     bzpt->corner[1] = pzy;
+
     _path_init_ctrl_points(form);
+
     // we recreate the form points
     dt_masks_gui_form_remove(form, gui, index);
     dt_masks_gui_form_create(form, gui, index, module);
@@ -1750,26 +1778,35 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
     const GList *const pt2 = g_list_next_wraparound(pt, form->points);
     dt_masks_point_path_t *point = (dt_masks_point_path_t *)pt->data;
     dt_masks_point_path_t *point2 = (dt_masks_point_path_t *)pt2->data;
-    const float wd = darktable.develop->preview_pipe->backbuf_width;
-    const float ht = darktable.develop->preview_pipe->backbuf_height;
     float pts[2] = { pzx * wd + gui->dx, pzy * ht + gui->dy };
     dt_dev_distort_backtransform(darktable.develop, pts, 1);
     const float dx = pts[0] / darktable.develop->preview_pipe->iwidth - point->corner[0];
     const float dy = pts[1] / darktable.develop->preview_pipe->iheight - point->corner[1];
 
+    // if first or last segment, adjust the source accordingly as the source point
+    // is at the end of the first segment and at the start of the last one.
+    if((form->type & DT_MASKS_CLONE)
+       && (gui->seg_dragging == 0
+           || gui->seg_dragging == (g_list_length(form->points) - 1)))
+    {
+      form->source[0] += dx;
+      form->source[1] += dy;
+    }
+
     // we move all points
     point->corner[0] += dx;
     point->corner[1] += dy;
-    point->ctrl1[0] += dx;
-    point->ctrl1[1] += dy;
-    point->ctrl2[0] += dx;
-    point->ctrl2[1] += dy;
+    point->ctrl1[0]  += dx;
+    point->ctrl1[1]  += dy;
+    point->ctrl2[0]  += dx;
+    point->ctrl2[1]  += dy;
+
     point2->corner[0] += dx;
     point2->corner[1] += dy;
-    point2->ctrl1[0] += dx;
-    point2->ctrl1[1] += dy;
-    point2->ctrl2[0] += dx;
-    point2->ctrl2[1] += dy;
+    point2->ctrl1[0]  += dx;
+    point2->ctrl1[1]  += dy;
+    point2->ctrl2[0]  += dx;
+    point2->ctrl2[1]  += dy;
 
     _path_init_ctrl_points(form);
 
@@ -1784,21 +1821,20 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
   }
   else if(gui->feather_dragging >= 0)
   {
-    const float wd = darktable.develop->preview_pipe->backbuf_width;
-    const float ht = darktable.develop->preview_pipe->backbuf_height;
     float pts[2] = { pzx * wd, pzy * ht };
     dt_dev_distort_backtransform(darktable.develop, pts, 1);
     dt_masks_point_path_t *point
         = (dt_masks_point_path_t *)g_list_nth_data(form->points, gui->feather_dragging);
 
-    int p1x, p1y, p2x, p2y;
+    float p1x, p1y, p2x, p2y;
     _path_feather_to_ctrl(point->corner[0] * darktable.develop->preview_pipe->iwidth,
-                          point->corner[1] * darktable.develop->preview_pipe->iheight, pts[0], pts[1], &p1x,
-                          &p1y, &p2x, &p2y, gpt->clockwise);
-    point->ctrl1[0] = (float)p1x / darktable.develop->preview_pipe->iwidth;
-    point->ctrl1[1] = (float)p1y / darktable.develop->preview_pipe->iheight;
-    point->ctrl2[0] = (float)p2x / darktable.develop->preview_pipe->iwidth;
-    point->ctrl2[1] = (float)p2y / darktable.develop->preview_pipe->iheight;
+                          point->corner[1] * darktable.develop->preview_pipe->iheight,
+                          pts[0], pts[1],
+                          &p1x, &p1y, &p2x, &p2y, gpt->clockwise);
+    point->ctrl1[0] = p1x / darktable.develop->preview_pipe->iwidth;
+    point->ctrl1[1] = p1y / darktable.develop->preview_pipe->iheight;
+    point->ctrl2[0] = p2x / darktable.develop->preview_pipe->iwidth;
+    point->ctrl2[1] = p2y / darktable.develop->preview_pipe->iheight;
     point->state = DT_MASKS_POINT_STATE_USER;
 
     _path_init_ctrl_points(form);
@@ -1810,9 +1846,6 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
   }
   else if(gui->point_border_dragging >= 0)
   {
-    const float wd = darktable.develop->preview_pipe->backbuf_width;
-    const float ht = darktable.develop->preview_pipe->backbuf_height;
-
     const int k = gui->point_border_dragging;
 
     // now we want to know the position reflected on actual corner/border segment
@@ -1840,8 +1873,6 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
   }
   else if(gui->form_dragging || gui->source_dragging)
   {
-    const float wd = darktable.develop->preview_pipe->backbuf_width;
-    const float ht = darktable.develop->preview_pipe->backbuf_height;
     float pts[2] = { pzx * wd + gui->dx, pzy * ht + gui->dy };
     dt_dev_distort_backtransform(darktable.develop, pts, 1);
 
@@ -1885,16 +1916,17 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
   // are we near a point or feather ?
   const guint nb = g_list_length(form->points);
 
-  pzx *= darktable.develop->preview_pipe->backbuf_width,
-      pzy *= darktable.develop->preview_pipe->backbuf_height;
+  pzx *= darktable.develop->preview_pipe->backbuf_width;
+  pzy *= darktable.develop->preview_pipe->backbuf_height;
 
   if((gui->group_selected == index) && gui->point_edited >= 0)
   {
     const int k = gui->point_edited;
     // we only select feather if the point is not "sharp"
-    if(gpt->points[k * 6 + 2] != gpt->points[k * 6 + 4] && gpt->points[k * 6 + 3] != gpt->points[k * 6 + 5])
+    if(gpt->points[k * 6 + 2] != gpt->points[k * 6 + 4]
+       && gpt->points[k * 6 + 3] != gpt->points[k * 6 + 5])
     {
-      int ffx, ffy;
+      float ffx, ffy;
       _path_ctrl2_to_feather(gpt->points[k * 6 + 2], gpt->points[k * 6 + 3], gpt->points[k * 6 + 4],
                              gpt->points[k * 6 + 5], &ffx, &ffy, gpt->clockwise);
       if(pzx - ffx > -as && pzx - ffx < as && pzy - ffy > -as && pzy - ffy < as)
@@ -1926,8 +1958,8 @@ static int _path_events_mouse_moved(struct dt_iop_module_t *module, float pzx, f
     }
 
     // border corner ??
-    if(pzx - gpt->border[k * 6] > -as && pzx - gpt->border[k * 6] < as && pzy - gpt->border[k * 6 + 1] > -as
-       && pzy - gpt->border[k * 6 + 1] < as)
+    if(pzx - gpt->border[k * 6] > -as && pzx - gpt->border[k * 6] < as
+       && pzy - gpt->border[k * 6 + 1] > -as && pzy - gpt->border[k * 6 + 1] < as)
     {
       gui->point_border_selected = k;
       dt_control_queue_redraw_center();
@@ -1984,7 +2016,8 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
     {
       cairo_line_to(cr, gpt->points[i * 2], gpt->points[i * 2 + 1]);
       // we decide to highlight the form segment by segment
-      if(gpt->points[i * 2 + 1] == gpt->points[seg * 6 + 3] && gpt->points[i * 2] == gpt->points[seg * 6 + 2])
+      if(gpt->points[i * 2 + 1] == gpt->points[seg * 6 + 3]
+         && gpt->points[i * 2] == gpt->points[seg * 6 + 2])
       {
         // this is the end of the last segment, so we have to draw it
         if((gui->group_selected == index)
@@ -1992,14 +2025,14 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
           cairo_set_line_width(cr, 5.0 / zoom_scale);
         else
           cairo_set_line_width(cr, 3.0 / zoom_scale);
-        dt_draw_set_color_overlay(cr, 0.3, 0.8);
+        dt_draw_set_color_overlay(cr, FALSE, 0.8);
         cairo_stroke_preserve(cr);
         if((gui->group_selected == index)
            && (gui->form_selected || gui->form_dragging || gui->seg_selected == seg2))
           cairo_set_line_width(cr, 2.0 / zoom_scale);
         else
           cairo_set_line_width(cr, 1.0 / zoom_scale);
-        dt_draw_set_color_overlay(cr, 0.8, 0.8);
+        dt_draw_set_color_overlay(cr, TRUE, 0.8);
         cairo_stroke(cr);
         // and we update the segment number
         seg = (seg + 1) % nb;
@@ -2023,19 +2056,18 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
       {
         anchor_size = 5.0f / zoom_scale;
       }
-      dt_draw_set_color_overlay(cr, 0.8, 0.8);
+      dt_draw_set_color_overlay(cr, TRUE, 0.8);
       cairo_rectangle(cr, gpt->points[k * 6 + 2] - (anchor_size * 0.5),
                       gpt->points[k * 6 + 3] - (anchor_size * 0.5), anchor_size, anchor_size);
       cairo_fill_preserve(cr);
 
-      if((gui->group_selected == index) && (k == gui->point_dragging || k == gui->point_selected))
+      if(k == gui->point_dragging || k == gui->point_selected)
         cairo_set_line_width(cr, 2.0 / zoom_scale);
-      else if((gui->group_selected == index)
-              && ((k == 0 || k == nb) && gui->creation && gui->creation_closing_form))
+      else if((k == 0 || k == nb) && gui->creation && gui->creation_closing_form)
         cairo_set_line_width(cr, 2.0 / zoom_scale);
       else
         cairo_set_line_width(cr, 1.0 / zoom_scale);
-      dt_draw_set_color_overlay(cr, 0.3, 0.8);
+      dt_draw_set_color_overlay(cr, FALSE, 0.8);
       cairo_stroke(cr);
     }
   }
@@ -2051,27 +2083,27 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
     cairo_move_to(cr, gui->points[k*6+2],gui->points[k*6+3]);
     cairo_line_to(cr, gui->points[k*6+4],gui->points[k*6+5]);
     cairo_stroke(cr);*/
-    int ffx = 0, ffy = 0;
+    float ffx = 0.0f, ffy = 0.0f;
     _path_ctrl2_to_feather(gpt->points[k * 6 + 2], gpt->points[k * 6 + 3], gpt->points[k * 6 + 4],
                            gpt->points[k * 6 + 5], &ffx, &ffy, gpt->clockwise);
     cairo_move_to(cr, gpt->points[k * 6 + 2], gpt->points[k * 6 + 3]);
     cairo_line_to(cr, ffx, ffy);
     cairo_set_line_width(cr, 1.5 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_stroke_preserve(cr);
     cairo_set_line_width(cr, 0.75 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_stroke(cr);
 
-    if((gui->group_selected == index) && (k == gui->feather_dragging || k == gui->feather_selected))
+    if(k == gui->feather_dragging || k == gui->feather_selected)
       cairo_arc(cr, ffx, ffy, 3.0f / zoom_scale, 0, 2.0 * M_PI);
     else
       cairo_arc(cr, ffx, ffy, 1.5f / zoom_scale, 0, 2.0 * M_PI);
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_fill_preserve(cr);
 
     cairo_set_line_width(cr, 1.0 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_stroke(cr);
   }
 
@@ -2100,14 +2132,14 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
       cairo_set_line_width(cr, 2.0 / zoom_scale);
     else
       cairo_set_line_width(cr, 1.0 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_set_dash(cr, dashed, len, 0);
     cairo_stroke_preserve(cr);
     if(gui->border_selected)
       cairo_set_line_width(cr, 2.0 / zoom_scale);
     else
       cairo_set_line_width(cr, 1.0 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_set_dash(cr, dashed, len, 4);
     cairo_stroke(cr);
 
@@ -2123,7 +2155,7 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
       {
         anchor_size = 5.0f / zoom_scale;
       }
-      dt_draw_set_color_overlay(cr, 0.8, 0.8);
+      dt_draw_set_color_overlay(cr, TRUE, 0.8);
       cairo_rectangle(cr, gpt->border[k * 6] - (anchor_size * 0.5), gpt->border[k * 6 + 1] - (anchor_size * 0.5),
                       anchor_size, anchor_size);
       cairo_fill_preserve(cr);
@@ -2132,14 +2164,16 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
         cairo_set_line_width(cr, 2.0 / zoom_scale);
       else
         cairo_set_line_width(cr, 1.0 / zoom_scale);
-      dt_draw_set_color_overlay(cr, 0.3, 0.8);
+      dt_draw_set_color_overlay(cr, FALSE, 0.8);
       cairo_set_dash(cr, dashed, 0, 0);
       cairo_stroke(cr);
     }
   }
 
   // draw a cross where the source will be created
-  if(gui->creation && darktable.develop->form_visible && (darktable.develop->form_visible->type & DT_MASKS_CLONE))
+  if(gui->creation
+     && darktable.develop->form_visible
+     && (darktable.develop->form_visible->type & DT_MASKS_CLONE))
   {
     const int k = nb - 1;
     if((k * 6 + 2) >= 0)
@@ -2180,13 +2214,13 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
       cairo_set_line_width(cr, 2.5 / zoom_scale);
     else
       cairo_set_line_width(cr, 1.5 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_stroke_preserve(cr);
     if((gui->group_selected == index) && (gui->form_selected || gui->form_dragging))
       cairo_set_line_width(cr, 1.0 / zoom_scale);
     else
       cairo_set_line_width(cr, 0.5 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_stroke(cr);
 
     // we draw the source
@@ -2195,16 +2229,17 @@ static void _path_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_for
       cairo_set_line_width(cr, 2.5 / zoom_scale);
     else
       cairo_set_line_width(cr, 1.5 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_move_to(cr, gpt->source[nb * 6], gpt->source[nb * 6 + 1]);
-    for(int i = nb * 3; i < gpt->source_count; i++) cairo_line_to(cr, gpt->source[i * 2], gpt->source[i * 2 + 1]);
+    for(int i = nb * 3; i < gpt->source_count; i++)
+      cairo_line_to(cr, gpt->source[i * 2], gpt->source[i * 2 + 1]);
     cairo_line_to(cr, gpt->source[nb * 6], gpt->source[nb * 6 + 1]);
     cairo_stroke_preserve(cr);
     if((gui->group_selected == index) && (gui->form_selected || gui->form_dragging))
       cairo_set_line_width(cr, 1.0 / zoom_scale);
     else
       cairo_set_line_width(cr, 0.5 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_stroke(cr);
   }
 }
@@ -2261,12 +2296,14 @@ static void _path_bounding_box(const float *const points, const float *border, c
 }
 
 static int _get_area(const dt_iop_module_t *const module, const dt_dev_pixelpipe_iop_t *const piece,
-                     dt_masks_form_t *const form, int *width, int *height, int *posx, int *posy, int get_source)
+                     dt_masks_form_t *const form, int *width, int *height, int *posx, int *posy, gboolean get_source)
 {
   if(!module) return 0;
+
   // we get buffers for all points
   float *points = NULL, *border = NULL;
   int points_count = 0, border_count = 0;
+
   if(!_path_get_pts_border(module->dev, form, module->iop_order, DT_DEV_TRANSFORM_DIR_BACK_INCL, piece->pipe, &points, &points_count,
                            &border, &border_count, get_source))
   {
@@ -2286,14 +2323,14 @@ static int _get_area(const dt_iop_module_t *const module, const dt_dev_pixelpipe
 static int _path_get_source_area(dt_iop_module_t *module, dt_dev_pixelpipe_iop_t *piece,
                                  dt_masks_form_t *form, int *width, int *height, int *posx, int *posy)
 {
-  return _get_area(module, piece, form, width, height, posx, posy, 1);
+  return _get_area(module, piece, form, width, height, posx, posy, TRUE);
 }
 
 static int _path_get_area(const dt_iop_module_t *const module, const dt_dev_pixelpipe_iop_t *const piece,
                           dt_masks_form_t *const form,
                           int *width, int *height, int *posx, int *posy)
 {
-  return _get_area(module, piece, form,width, height, posx, posy, 0);
+  return _get_area(module, piece, form, width, height, posx, posy, FALSE);
 }
 
 /** we write a falloff segment */
@@ -2333,8 +2370,9 @@ static int _path_get_mask(const dt_iop_module_t *const module, const dt_dev_pixe
   // we get buffers for all points
   float *points = NULL, *border = NULL;
   int points_count, border_count;
-  if(!_path_get_pts_border(module->dev, form, module->iop_order, DT_DEV_TRANSFORM_DIR_BACK_INCL, piece->pipe, &points, &points_count,
-                           &border, &border_count, 0))
+  if(!_path_get_pts_border(module->dev, form, module->iop_order,
+                           DT_DEV_TRANSFORM_DIR_BACK_INCL, piece->pipe, &points, &points_count,
+                           &border, &border_count, FALSE))
   {
     dt_free_align(points);
     dt_free_align(border);
@@ -2490,7 +2528,7 @@ static int _path_get_mask(const dt_iop_module_t *const module, const dt_dev_pixe
     int state = 0;
     for(int xx = 0; xx < wb; xx++)
     {
-      float v = bufptr[yy * wb + xx];
+      const float v = bufptr[yy * wb + xx];
       if(v == 1.0f) state = !state;
       if(state) bufptr[yy * wb + xx] = 1.0f;
     }
@@ -2510,7 +2548,8 @@ static int _path_get_mask(const dt_iop_module_t *const module, const dt_dev_pixe
   int next = 0;
   for(int i = nb_corner * 3; i < border_count; i++)
   {
-    p0[0] = points[i * 2], p0[1] = points[i * 2 + 1];
+    p0[0] = points[i * 2];
+    p0[1] = points[i * 2 + 1];
     if(next > 0)
       p1[0] = pf1[0] = border[next * 2], p1[1] = pf1[1] = border[next * 2 + 1];
     else
@@ -2524,15 +2563,18 @@ static int _path_get_mask(const dt_iop_module_t *const module, const dt_dev_pixe
         next = i - 1;
       else
         next = p1[1];
-      p1[0] = pf1[0] = border[next * 2], p1[1] = pf1[1] = border[next * 2 + 1];
+      p1[0] = pf1[0] = border[next * 2];
+      p1[1] = pf1[1] = border[next * 2 + 1];
     }
 
     // and we draw the falloff
     if(last0[0] != p0[0] || last0[1] != p0[1] || last1[0] != p1[0] || last1[1] != p1[1])
     {
       _path_falloff(bufptr, p0, p1, *posx, *posy, *width);
-      last0[0] = p0[0], last0[1] = p0[1];
-      last1[0] = p1[0], last1[1] = p1[1];
+      last0[0] = p0[0];
+      last0[1] = p0[1];
+      last1[0] = p1[0];
+      last1[1] = p1[1];
     }
   }
 
@@ -2566,7 +2608,8 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
     float x = path[2 * k];
     float y = path[2 * k + 1];
 
-    if(x >= xmin + 1 && y >= ymin + 1 && x <= xmax - 1 && y <= ymax - 1)
+    if(x >= xmin + 1 && y >= ymin + 1
+       && x <= xmax - 1 && y <= ymax - 1)
     {
       point_start = k;
       break;
@@ -2581,7 +2624,7 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
   // find the crossing points with xmin and replace segment by nodes on border
   for(int k = 0; k < point_count; k++)
   {
-    int kk = (k + point_start) % point_count;
+    const int kk = (k + point_start) % point_count;
 
     if(l < 0 && path[2 * kk] < xmin) l = k;       // where we leave roi
     if(l >= 0 && path[2 * kk] >= xmin) r = k - 1; // where we re-enter roi
@@ -2589,15 +2632,15 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
     // replace that segment
     if(l >= 0 && r >= 0)
     {
-      int count = r - l + 1;
-      int ll = (l - 1 + point_start) % point_count;
-      int rr = (r + 1 + point_start) % point_count;
-      float delta_y = (count == 1) ? 0 : (path[2 * rr + 1] - path[2 * ll + 1]) / (count - 1);
-      float start_y = path[2 * ll + 1];
+      const int count = r - l + 1;
+      const int ll = (l - 1 + point_start) % point_count;
+      const int rr = (r + 1 + point_start) % point_count;
+      const float delta_y = (count == 1) ? 0 : (path[2 * rr + 1] - path[2 * ll + 1]) / (count - 1);
+      const float start_y = path[2 * ll + 1];
 
       for(int n = 0; n < count; n++)
       {
-        int nn = (n + l + point_start) % point_count;
+        const int nn = (n + l + point_start) % point_count;
         path[2 * nn] = xmin;
         path[2 * nn + 1] = start_y + n * delta_y;
       }
@@ -2609,7 +2652,7 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
   // find the crossing points with xmax and replace segment by nodes on border
   for(int k = 0; k < point_count; k++)
   {
-    int kk = (k + point_start) % point_count;
+    const int kk = (k + point_start) % point_count;
 
     if(l < 0 && path[2 * kk] > xmax) l = k;       // where we leave roi
     if(l >= 0 && path[2 * kk] <= xmax) r = k - 1; // where we re-enter roi
@@ -2617,15 +2660,15 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
     // replace that segment
     if(l >= 0 && r >= 0)
     {
-      int count = r - l + 1;
-      int ll = (l - 1 + point_start) % point_count;
-      int rr = (r + 1 + point_start) % point_count;
-      float delta_y = (count == 1) ? 0 : (path[2 * rr + 1] - path[2 * ll + 1]) / (count - 1);
-      float start_y = path[2 * ll + 1];
+      const int count = r - l + 1;
+      const int ll = (l - 1 + point_start) % point_count;
+      const int rr = (r + 1 + point_start) % point_count;
+      const float delta_y = (count == 1) ? 0 : (path[2 * rr + 1] - path[2 * ll + 1]) / (count - 1);
+      const float start_y = path[2 * ll + 1];
 
       for(int n = 0; n < count; n++)
       {
-        int nn = (n + l + point_start) % point_count;
+        const int nn = (n + l + point_start) % point_count;
         path[2 * nn] = xmax;
         path[2 * nn + 1] = start_y + n * delta_y;
       }
@@ -2637,7 +2680,7 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
   // find the crossing points with ymin and replace segment by nodes on border
   for(int k = 0; k < point_count; k++)
   {
-    int kk = (k + point_start) % point_count;
+    const int kk = (k + point_start) % point_count;
 
     if(l < 0 && path[2 * kk + 1] < ymin) l = k;       // where we leave roi
     if(l >= 0 && path[2 * kk + 1] >= ymin) r = k - 1; // where we re-enter roi
@@ -2645,15 +2688,15 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
     // replace that segment
     if(l >= 0 && r >= 0)
     {
-      int count = r - l + 1;
-      int ll = (l - 1 + point_start) % point_count;
-      int rr = (r + 1 + point_start) % point_count;
-      float delta_x = (count == 1) ? 0 : (path[2 * rr] - path[2 * ll]) / (count - 1);
-      float start_x = path[2 * ll];
+      const int count = r - l + 1;
+      const int ll = (l - 1 + point_start) % point_count;
+      const int rr = (r + 1 + point_start) % point_count;
+      const float delta_x = (count == 1) ? 0 : (path[2 * rr] - path[2 * ll]) / (count - 1);
+      const float start_x = path[2 * ll];
 
       for(int n = 0; n < count; n++)
       {
-        int nn = (n + l + point_start) % point_count;
+        const int nn = (n + l + point_start) % point_count;
         path[2 * nn] = start_x + n * delta_x;
         path[2 * nn + 1] = ymin;
       }
@@ -2665,7 +2708,7 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
   // find the crossing points with ymax and replace segment by nodes on border
   for(int k = 0; k < point_count; k++)
   {
-    int kk = (k + point_start) % point_count;
+    const int kk = (k + point_start) % point_count;
 
     if(l < 0 && path[2 * kk + 1] > ymax) l = k;       // where we leave roi
     if(l >= 0 && path[2 * kk + 1] <= ymax) r = k - 1; // where we re-enter roi
@@ -2673,15 +2716,15 @@ static int _path_crop_to_roi(float *path, const int point_count, float xmin, flo
     // replace that segment
     if(l >= 0 && r >= 0)
     {
-      int count = r - l + 1;
-      int ll = (l - 1 + point_start) % point_count;
-      int rr = (r + 1 + point_start) % point_count;
-      float delta_x = (count == 1) ? 0 : (path[2 * rr] - path[2 * ll]) / (count - 1);
-      float start_x = path[2 * ll];
+      const int count = r - l + 1;
+      const int ll = (l - 1 + point_start) % point_count;
+      const int rr = (r + 1 + point_start) % point_count;
+      const float delta_x = (count == 1) ? 0 : (path[2 * rr] - path[2 * ll]) / (count - 1);
+      const float start_x = path[2 * ll];
 
       for(int n = 0; n < count; n++)
       {
-        int nn = (n + l + point_start) % point_count;
+        const int nn = (n + l + point_start) % point_count;
         path[2 * nn] = start_x + n * delta_x;
         path[2 * nn + 1] = ymax;
       }
@@ -2712,7 +2755,8 @@ static void _path_falloff_roi(float *buffer, int *p0, int *p1, int bw, int bh)
     const int y = (int)((float)i * ly / (float)l) + p0[1];
     const float op = 1.0f - (float)i / (float)l;
     float *buf = buffer + (size_t)y * bw + x;
-    if(x >= 0 && x < bw && y >= 0 && y < bh) buf[0] = MAX(buf[0], op);
+    if(x >= 0 && x < bw && y >= 0 && y < bh)
+      buf[0] = MAX(buf[0], op);
     if(x + dx >= 0 && x + dx < bw && y >= 0 && y < bh)
       buf[dx] = MAX(buf[dx], op); // this one is to avoid gap due to int rounding
     if(x >= 0 && x < bw && y + dy >= 0 && y + dy < bh)
@@ -2750,7 +2794,7 @@ static int _path_get_mask_roi(const dt_iop_module_t *const module, const dt_dev_
   float *points = NULL, *border = NULL;
   int points_count = 0, border_count = 0;
   if(!_path_get_pts_border(module->dev, form, module->iop_order, DT_DEV_TRANSFORM_DIR_BACK_INCL, piece->pipe, &points, &points_count,
-                           &border, &border_count, 0) || (points_count <= 2))
+                           &border, &border_count, FALSE) || (points_count <= 2))
   {
     dt_free_align(points);
     dt_free_align(border);
@@ -2768,8 +2812,8 @@ static int _path_get_mask_roi(const dt_iop_module_t *const module, const dt_dev_
   // we shift and scale down path and border
   for(int i = nb_corner * 3; i < border_count; i++)
   {
-    float xx = border[2 * i];
-    float yy = border[2 * i + 1];
+    const float xx = border[2 * i];
+    const float yy = border[2 * i + 1];
     if(isnan(xx))
     {
       if(isnan(yy)) break; // that means we have to skip the end of the border path
@@ -2781,8 +2825,8 @@ static int _path_get_mask_roi(const dt_iop_module_t *const module, const dt_dev_
   }
   for(int i = nb_corner * 3; i < points_count; i++)
   {
-    float xx = points[2 * i];
-    float yy = points[2 * i + 1];
+    const float xx = points[2 * i];
+    const float yy = points[2 * i + 1];
     points[2 * i] = xx * scale - px;
     points[2 * i + 1] = yy * scale - py;
   }
@@ -2790,8 +2834,8 @@ static int _path_get_mask_roi(const dt_iop_module_t *const module, const dt_dev_
   // now check if path is at least partially within roi
   for(int i = nb_corner * 3; i < points_count; i++)
   {
-    int xx = points[i * 2];
-    int yy = points[i * 2 + 1];
+    const int xx = points[i * 2];
+    const int yy = points[i * 2 + 1];
 
     if(xx > 1 && yy > 1 && xx < width - 2 && yy < height - 2)
     {
@@ -2805,12 +2849,12 @@ static int _path_get_mask_roi(const dt_iop_module_t *const module, const dt_dev_
   {
     int nb = 0;
     int last = -9999;
-    int x = width / 2;
-    int y = height / 2;
+    const int x = width / 2;
+    const int y = height / 2;
 
     for(int i = nb_corner * 3; i < points_count; i++)
     {
-      int yy = (int)points[2 * i + 1];
+      const int yy = (int)points[2 * i + 1];
       if(yy != last && yy == y)
       {
         if(points[2 * i] > x) nb++;
@@ -2828,8 +2872,8 @@ static int _path_get_mask_roi(const dt_iop_module_t *const module, const dt_dev_
   // now check if feather is at least partially within roi
   for(int i = nb_corner * 3; i < border_count; i++)
   {
-    float xx = border[i * 2];
-    float yy = border[i * 2 + 1];
+    const float xx = border[i * 2];
+    const float yy = border[i * 2 + 1];
     if(isnan(xx))
     {
       if(isnan(yy)) break; // that means we have to skip the end of the border path
@@ -2885,8 +2929,9 @@ static int _path_get_mask_roi(const dt_iop_module_t *const module, const dt_dev_
     // now we clip cpoints to roi -> catch special case when roi lies completely within path.
     // dirty trick: we allow path to extend one pixel beyond height-1. this avoids need of special handling
     // of the last roi line in the following edge-flag polygon fill algorithm.
-    int crop_success = _path_crop_to_roi(cpoints + 2 * (nb_corner * 3), points_count - nb_corner * 3, 0,
-                                         width - 1, 0, height);
+    const int crop_success = _path_crop_to_roi(cpoints + 2 * (nb_corner * 3),
+                                               points_count - nb_corner * 3, 0,
+                                               width - 1, 0, height);
     path_encircles_roi = path_encircles_roi || !crop_success;
 
     if(darktable.unmuted & DT_DEBUG_PERF)
@@ -3171,6 +3216,9 @@ const dt_masks_functions_t dt_masks_functions_path = {
 };
 
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

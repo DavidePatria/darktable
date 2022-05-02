@@ -97,7 +97,7 @@ const char *name()
   return _("dithering");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("reduce banding and posterization effects in output JPEGs by adding random noise"),
                                       _("corrective"),
@@ -118,12 +118,12 @@ int flags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_rgb;
+  return IOP_CS_RGB;
 }
 
 void init_presets(dt_iop_module_so_t *self)
 {
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "BEGIN", NULL, NULL, NULL);
+  dt_database_start_transaction(darktable.db);
 
   dt_iop_dither_params_t tmp
       = (dt_iop_dither_params_t){ DITHER_FSAUTO, 0, { 0.0f, { 0.0f, 0.0f, 1.0f, 1.0f }, -200.0f } };
@@ -134,7 +134,7 @@ void init_presets(dt_iop_module_so_t *self)
   // make it auto-apply for all images:
   // dt_gui_presets_update_autoapply(_("dither"), self->op, self->version(), 1);
 
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "COMMIT", NULL, NULL, NULL);
+  dt_database_release_transaction(darktable.db);
 }
 
 #ifdef _OPENMP
@@ -405,7 +405,7 @@ static void process_floyd_steinberg(struct dt_iop_module_t *self, dt_dev_pixelpi
     _diffuse_error(pixel_ + down, err, DOWN_WT);                        \
     _diffuse_error(pixel_ + downright, err, DOWNRIGHT_WT);              \
   }
-  
+
 #define PROCESS_PIXEL_LEFT(_pixel, inpix)                               \
   {                                                                     \
     float *const pixel_ = (_pixel);                                     \
@@ -416,12 +416,12 @@ static void process_floyd_steinberg(struct dt_iop_module_t *self, dt_dev_pixelpi
     _diffuse_error(pixel_ + down, err, DOWN_WT);                        \
     _diffuse_error(pixel_ + downright, err, DOWNRIGHT_WT);              \
   }
-  
+
 #define PROCESS_PIXEL_RIGHT(pixel)                                      \
   nearest_color(pixel, err, graymode, f, rf);             /* quantize pixel */ \
   _diffuse_error(pixel + downleft, err, DOWNLEFT_WT);     /* diffuse quantization error to neighbors */ \
   _diffuse_error(pixel + down, err, DOWN_WT);
-  
+
   // once the FS dithering gets started, we can copy&clip the downright pixel, as that will be the first time
   // it will be accessed.  But to get the process started, we need to prepare the top row of pixels
 #ifdef _OPENMP
@@ -588,7 +588,7 @@ static void process_floyd_steinberg_sse2(struct dt_iop_module_t *self, dt_dev_pi
     _diffuse_error_sse(pixel_ + down, err, DOWN_WT);                    \
     _diffuse_error_sse(pixel_ + downright, err, DOWNRIGHT_WT);          \
   }
-  
+
 #define PROCESS_PIXEL_LEFT_SSE(_pixel, inpix)                           \
   {                                                                     \
     float *const pixel_ = (_pixel);                                     \
@@ -599,12 +599,12 @@ static void process_floyd_steinberg_sse2(struct dt_iop_module_t *self, dt_dev_pi
     _diffuse_error_sse(pixel_ + down, err, DOWN_WT);                    \
     _diffuse_error_sse(pixel_ + downright, err, DOWNRIGHT_WT);          \
   }
-  
+
 #define PROCESS_PIXEL_RIGHT_SSE(pixel)                                  \
   err = nearest_color_sse(pixel, graymode, f, rf);             /* quantize pixel */ \
   _diffuse_error_sse(pixel + downleft, err, DOWNLEFT_WT);      /* diffuse quantization error to neighbors */ \
   _diffuse_error_sse(pixel + down, err, DOWN_WT);
-  
+
   // once the FS dithering gets started, we can copy&clip the downright pixel, as that will be the first time
   // it will be accessed.  But to get the process started, we need to prepare the top row of pixels
   for (int j = 0; j < width; j++)
@@ -862,7 +862,6 @@ void gui_update(struct dt_iop_module_t *self)
 {
   dt_iop_dither_gui_data_t *g = (dt_iop_dither_gui_data_t *)self->gui_data;
   dt_iop_dither_params_t *p = (dt_iop_dither_params_t *)self->params;
-  dt_bauhaus_combobox_set(g->dither_type, p->dither_type);
 #if 0
   dt_bauhaus_slider_set(g->radius, p->random.radius);
 
@@ -871,8 +870,6 @@ void gui_update(struct dt_iop_module_t *self)
   dtgtk_gradient_slider_multivalue_set_value(DTGTK_GRADIENT_SLIDER(g->range), p->random.range[2], 2);
   dtgtk_gradient_slider_multivalue_set_value(DTGTK_GRADIENT_SLIDER(g->range), p->random.range[3], 3);
 #endif
-
-  dt_bauhaus_slider_set(g->damping, p->random.damping);
 
   gtk_widget_set_visible(g->random, p->dither_type == DITHER_RANDOM);
 }
@@ -908,7 +905,7 @@ void gui_init(struct dt_iop_module_t *self)
 
   gtk_widget_set_tooltip_text(g->damping, _("damping level of random dither"));
   dt_bauhaus_slider_set_digits(g->damping, 3);
-  dt_bauhaus_slider_set_format(g->damping, "%.0fdB");
+  dt_bauhaus_slider_set_format(g->damping, " dB");
 
 #if 0
   gtk_box_pack_start(GTK_BOX(g->random), g->radius, TRUE, TRUE, 0);
@@ -930,6 +927,9 @@ void gui_init(struct dt_iop_module_t *self)
 #endif
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

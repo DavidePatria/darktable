@@ -101,12 +101,13 @@ int default_group()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_RAW;
+  return IOP_CS_RAW;
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
-  return dt_iop_set_description(self, _("sets technical specificities of the raw sensor.\n\ntouch with great care!"),
+  return dt_iop_set_description(self, _("sets technical specificities of the raw sensor.\n"
+                                        "touch with great care!"),
                                       _("mandatory"),
                                       _("linear, raw, scene-referred"),
                                       _("linear, raw"),
@@ -115,7 +116,7 @@ const char *description(struct dt_iop_module_t *self)
 
 void init_presets(dt_iop_module_so_t *self)
 {
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "BEGIN", NULL, NULL, NULL);
+  dt_database_start_transaction(darktable.db);
 
   dt_gui_presets_add_generic(_("passthrough"), self->op, self->version(),
                              &(dt_iop_rawprepare_params_t){.x = 0,
@@ -129,7 +130,7 @@ void init_presets(dt_iop_module_so_t *self)
                                                            .raw_white_point = UINT16_MAX },
                              sizeof(dt_iop_rawprepare_params_t), 1, DEVELOP_BLEND_CS_NONE);
 
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "COMMIT", NULL, NULL, NULL);
+  dt_database_release_transaction(darktable.db);
 }
 
 static int compute_proper_crop(dt_dev_pixelpipe_iop_t *piece, const dt_iop_roi_t *const roi_in, int value)
@@ -398,7 +399,7 @@ int process_cl(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_mem dev_
   const int width = roi_out->width;
   const int height = roi_out->height;
 
-  size_t sizes[] = { ROUNDUPWD(roi_in->width), ROUNDUPHT(roi_in->height), 1 };
+  size_t sizes[] = { ROUNDUPDWD(roi_in->width, devid), ROUNDUPDHT(roi_in->height, devid), 1 };
   dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), (void *)&dev_in);
   dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), (void *)&dev_out);
   dt_opencl_set_kernel_arg(devid, kernel, 2, sizeof(int), (void *)&(width));
@@ -599,27 +600,12 @@ void gui_update(dt_iop_module_t *self)
       av += p->raw_black_level_separate[i];
 
     for(int i = 0; i < 4; i++)
-      dt_bauhaus_slider_set_soft(g->black_level_separate[i], av / 4);
-  }
-  else
-  {
-    for(int i = 0; i < 4; i++)
-      dt_bauhaus_slider_set_soft(g->black_level_separate[i], p->raw_black_level_separate[i]);
+      dt_bauhaus_slider_set(g->black_level_separate[i], av / 4);
   }
 
   // don't show upper three black levels for monochromes
   for(int i = 1; i < 4; i++)
-    gtk_widget_set_visible(g->black_level_separate[i], !is_monochrome);     
-
-  dt_bauhaus_slider_set_soft(g->white_point, p->raw_white_point);
-
-  if(dt_conf_get_bool("plugins/darkroom/rawprepare/allow_editing_crop"))
-  {
-    dt_bauhaus_slider_set_soft(g->x, p->x);
-    dt_bauhaus_slider_set_soft(g->y, p->y);
-    dt_bauhaus_slider_set_soft(g->width, p->width);
-    dt_bauhaus_slider_set_soft(g->height, p->height);
-  }
+    gtk_widget_set_visible(g->black_level_separate[i], !is_monochrome);
 }
 
 void gui_changed(dt_iop_module_t *self, GtkWidget *w, void *previous)
@@ -634,7 +620,7 @@ void gui_changed(dt_iop_module_t *self, GtkWidget *w, void *previous)
     {
       const int val = p->raw_black_level_separate[0];
       for(int i = 1; i < 4; i++)
-        dt_bauhaus_slider_set_soft(g->black_level_separate[i], val);
+        dt_bauhaus_slider_set(g->black_level_separate[i], val);
     }
   }
 }
@@ -669,6 +655,9 @@ void gui_init(dt_iop_module_t *self)
 
   if(dt_conf_get_bool("plugins/darkroom/rawprepare/allow_editing_crop"))
   {
+    gtk_box_pack_start(GTK_BOX(self->widget),
+                       dt_ui_section_label_new(_("crop")), FALSE, FALSE, 0);
+
     g->x = dt_bauhaus_slider_from_params(self, "x");
     gtk_widget_set_tooltip_text(g->x, _("crop from left border"));
     dt_bauhaus_slider_set_soft_max(g->x, 256);
@@ -696,6 +685,8 @@ void gui_init(dt_iop_module_t *self)
   gtk_stack_add_named(GTK_STACK(self->widget), box_raw, "raw");
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on

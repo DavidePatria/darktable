@@ -97,10 +97,10 @@ static int _circle_events_mouse_scrolled(struct dt_iop_module_t *module, float p
       else
         masks_border = dt_conf_get_float("plugins/darkroom/masks/circle/border");
 
-      if(up && masks_border > 0.0005f)
-        masks_border *= 0.97f;
-      else if(!up && masks_border < max_mask_border)
+      if(up && masks_border < max_mask_border)
         masks_border *= 1.0f / 0.97f;
+      else if(!up && masks_border > 0.0005f)
+        masks_border *= 0.97f;
 
       if(form->type & (DT_MASKS_CLONE | DT_MASKS_NON_CLONE))
         dt_conf_set_float("plugins/darkroom/spots/circle_border", masks_border);
@@ -110,10 +110,10 @@ static int _circle_events_mouse_scrolled(struct dt_iop_module_t *module, float p
     }
     else if(dt_modifier_is(state, 0))
     {
-      if(up && masks_size > 0.001f)
-        masks_size *= 0.97f;
-      else if(!up && masks_size < max_mask_size)
+      if(up && masks_size < max_mask_size)
         masks_size *= 1.0f / 0.97f;
+      else if(!up && masks_size > 0.001f)
+        masks_size *= 0.97f;
 
       if(form->type & (DT_MASKS_CLONE | DT_MASKS_NON_CLONE))
         dt_conf_set_float("plugins/darkroom/spots/circle_size", masks_size);
@@ -143,10 +143,10 @@ static int _circle_events_mouse_scrolled(struct dt_iop_module_t *module, float p
       // resize don't care where the mouse is inside a shape
       if(dt_modifier_is(state, GDK_SHIFT_MASK))
       {
-        if(up && circle->border > 0.0005f)
-          circle->border *= 0.97f;
-        else if(!up && circle->border < max_mask_border)
+        if(up && circle->border < max_mask_border)
           circle->border *= 1.0f / 0.97f;
+        else if(!up && circle->border > 0.0005f)
+          circle->border *= 0.97f;
         else
           return 1;
         dt_dev_add_masks_history_item(darktable.develop, module, TRUE);
@@ -160,10 +160,10 @@ static int _circle_events_mouse_scrolled(struct dt_iop_module_t *module, float p
       }
       else if(gui->edit_mode == DT_MASKS_EDIT_FULL)
       {
-        if(up && circle->radius > 0.001f)
-          circle->radius *= 0.97f;
-        else if(!up && circle->radius < max_mask_size)
+        if(up && circle->radius < max_mask_size)
           circle->radius *= 1.0f / 0.97f;
+        else if(!up && circle->radius > 0.001f)
+          circle->radius *= 0.97f;
         else
           return 1;
         dt_dev_add_masks_history_item(darktable.develop, module, TRUE);
@@ -221,7 +221,8 @@ static int _circle_events_button_pressed(struct dt_iop_module_t *module, float p
     return 1;
   }
   else if(gui->creation && which == 1
-          && ((dt_modifier_is(state, GDK_CONTROL_MASK | GDK_SHIFT_MASK)) || dt_modifier_is(state, GDK_SHIFT_MASK)))
+          && ((dt_modifier_is(state, GDK_CONTROL_MASK | GDK_SHIFT_MASK))
+              || dt_modifier_is(state, GDK_SHIFT_MASK)))
   {
     // set some absolute or relative position for the source of the clone mask
     if(form->type & DT_MASKS_CLONE) dt_masks_set_source_pos_initial_state(gui, state, pzx, pzy);
@@ -281,12 +282,13 @@ static int _circle_events_button_pressed(struct dt_iop_module_t *module, float p
       else if(!gui->creation_continuous)
         dt_masks_set_edit_mode(crea_module, DT_MASKS_EDIT_FULL);
       dt_masks_iop_update(crea_module);
+      dt_dev_masks_selection_change(darktable.develop, crea_module, form->formid, TRUE);
       gui->creation_module = NULL;
     }
     else
     {
       // we select the new form
-      dt_dev_masks_selection_change(darktable.develop, form->formid, TRUE);
+      dt_dev_masks_selection_change(darktable.develop, NULL, form->formid, TRUE);
     }
 
     // if we draw a clone circle, we start now the source dragging
@@ -447,6 +449,13 @@ static int _circle_events_button_released(struct dt_iop_module_t *module, float 
       darktable.develop->form_gui->creation = TRUE;
       darktable.develop->form_gui->creation_module = gui->creation_continuous_module;
     }
+
+    // and select the source as default, if the mouse is not moved we are inside the
+    // source and so want to move the source.
+    gui->form_selected = TRUE;
+    gui->source_selected = TRUE;
+    gui->border_selected = FALSE;
+
     return 1;
   }
   return 0;
@@ -558,7 +567,7 @@ static void _circle_draw_lines(gboolean borders, gboolean source, cairo_t *cr, d
     else
       cairo_set_line_width(cr, 3.0 / zoom_scale);
   }
-  dt_draw_set_color_overlay(cr, 0.3, 0.8);
+  dt_draw_set_color_overlay(cr, FALSE, 0.8);
 
   cairo_move_to(cr, points[2], points[3]);
   for(int i = 2; i < points_count; i++)
@@ -582,7 +591,7 @@ static void _circle_draw_lines(gboolean borders, gboolean source, cairo_t *cr, d
     else
       cairo_set_line_width(cr, 1.0 / zoom_scale);
   }
-  dt_draw_set_color_overlay(cr, 0.8, 0.8);
+  dt_draw_set_color_overlay(cr, TRUE, 0.8);
   cairo_stroke(cr);
 }
 
@@ -828,13 +837,13 @@ static void _circle_events_post_expose(cairo_t *cr, float zoom_scale, dt_masks_f
         cairo_set_line_width(cr, 2.5 / zoom_scale);
       else
         cairo_set_line_width(cr, 1.5 / zoom_scale);
-      dt_draw_set_color_overlay(cr, 0.3, 0.8);
+      dt_draw_set_color_overlay(cr, FALSE, 0.8);
       cairo_stroke_preserve(cr);
       if((gui->group_selected == index) && (gui->form_selected || gui->form_dragging))
         cairo_set_line_width(cr, 1.0 / zoom_scale);
       else
         cairo_set_line_width(cr, 0.5 / zoom_scale);
-      dt_draw_set_color_overlay(cr, 0.8, 0.8);
+      dt_draw_set_color_overlay(cr, TRUE, 0.8);
       cairo_stroke(cr);
     }
 
@@ -1398,6 +1407,9 @@ const dt_masks_functions_t dt_masks_functions_circle = {
 
 
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

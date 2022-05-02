@@ -94,9 +94,9 @@ static int _gradient_events_mouse_scrolled(struct dt_iop_module_t *module, float
     {
       float compression = MIN(1.0f, dt_conf_get_float("plugins/darkroom/masks/gradient/compression"));
       if(up)
-        compression = fmaxf(compression, 0.001f) * 0.8f;
-      else
         compression = fminf(fmaxf(compression, 0.001f) * 1.0f / 0.8f, 1.0f);
+      else
+        compression = fmaxf(compression, 0.001f) * 0.8f;
       dt_conf_set_float("plugins/darkroom/masks/gradient/compression", compression);
       dt_toast_log(_("compression: %3.2f%%"), compression*100.0f);
     }
@@ -130,9 +130,9 @@ static int _gradient_events_mouse_scrolled(struct dt_iop_module_t *module, float
     {
       dt_masks_point_gradient_t *gradient = (dt_masks_point_gradient_t *)((form->points)->data);
       if(up)
-        gradient->compression = fmaxf(gradient->compression, 0.001f) * 0.8f;
-      else
         gradient->compression = fminf(fmaxf(gradient->compression, 0.001f) * 1.0f / 0.8f, 1.0f);
+      else
+        gradient->compression = fmaxf(gradient->compression, 0.001f) * 0.8f;
       dt_dev_add_masks_history_item(darktable.develop, module, TRUE);
       dt_masks_gui_form_remove(form, gui, index);
       dt_masks_gui_form_create(form, gui, index, module);
@@ -437,12 +437,13 @@ static int _gradient_events_button_released(struct dt_iop_module_t *module, floa
       // and we switch in edit mode to show all the forms
       dt_masks_set_edit_mode(crea_module, DT_MASKS_EDIT_FULL);
       dt_masks_iop_update(crea_module);
+      dt_dev_masks_selection_change(darktable.develop, crea_module, form->formid, TRUE);
       gui->creation_module = NULL;
     }
     else
     {
       // we select the new form
-      dt_dev_masks_selection_change(darktable.develop, form->formid, TRUE);
+      dt_dev_masks_selection_change(darktable.develop, NULL, form->formid, TRUE);
     }
 
     if(crea_module && gui->creation_continuous)
@@ -843,7 +844,7 @@ static void _gradient_draw_lines(gboolean borders, cairo_t *cr, double *dashed, 
       else
         cairo_set_line_width(cr, 3.0 / zoom_scale);
     }
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
 
     cairo_move_to(cr, x, y);
 
@@ -859,7 +860,7 @@ static void _gradient_draw_lines(gboolean borders, cairo_t *cr, double *dashed, 
       cairo_set_line_width(cr, 2.0 / zoom_scale);
     else
       cairo_set_line_width(cr, 1.0 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_stroke(cr);
   }
 }
@@ -880,7 +881,7 @@ static void _gradient_draw_arrow(cairo_t *cr, double *dashed, const float len, c
   {
     cairo_set_dash(cr, dashed, 0, 0);
     const float anchor_size = (selected) ? 7.0f / zoom_scale : 5.0f / zoom_scale;
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_rectangle(cr, anchor_x - (anchor_size * 0.5), anchor_y - (anchor_size * 0.5), anchor_size, anchor_size);
     cairo_fill_preserve(cr);
 
@@ -888,7 +889,7 @@ static void _gradient_draw_arrow(cairo_t *cr, double *dashed, const float len, c
       cairo_set_line_width(cr, 2.0 / zoom_scale);
     else
       cairo_set_line_width(cr, 1.0 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_stroke(cr);
   }
 
@@ -900,16 +901,16 @@ static void _gradient_draw_arrow(cairo_t *cr, double *dashed, const float len, c
       cairo_set_line_width(cr, 2.0 / zoom_scale);
     else
       cairo_set_line_width(cr, 1.0 / zoom_scale);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
 
     // from start to end
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_move_to(cr, pivot_start_x, pivot_start_y);
     cairo_line_to(cr, pivot_end_x, pivot_end_y);
     cairo_stroke(cr);
 
     // start side of the gradient
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_arc(cr, pivot_start_x, pivot_start_y, 3.0f / zoom_scale, 0, 2.0f * M_PI);
     cairo_fill_preserve(cr);
     cairo_stroke(cr);
@@ -917,7 +918,7 @@ static void _gradient_draw_arrow(cairo_t *cr, double *dashed, const float len, c
     // end side of the gradient
     cairo_arc(cr, pivot_end_x, pivot_end_y, 1.0f / zoom_scale, 0, 2.0f * M_PI);
     cairo_fill_preserve(cr);
-    dt_draw_set_color_overlay(cr, 0.3, 0.8);
+    dt_draw_set_color_overlay(cr, FALSE, 0.8);
     cairo_stroke(cr);
 
     // draw arrow on the end of the gradient to clearly display the direction
@@ -935,7 +936,7 @@ static void _gradient_draw_arrow(cairo_t *cr, double *dashed, const float len, c
     const float arrow_y1 = pivot_end_y + (arrow_length * sinf(angle + arrow_angle));
     const float arrow_y2 = pivot_end_y + (arrow_length * sinf(angle - arrow_angle));
 
-    dt_draw_set_color_overlay(cr, 0.8, 0.8);
+    dt_draw_set_color_overlay(cr, TRUE, 0.8);
     cairo_move_to(cr, pivot_end_x, pivot_end_y);
     cairo_line_to(cr, arrow_x1, arrow_y1);
     cairo_line_to(cr, arrow_x2, arrow_y2);
@@ -1501,6 +1502,9 @@ const dt_masks_functions_t dt_masks_functions_gradient = {
   .post_expose = _gradient_events_post_expose
 };
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

@@ -133,7 +133,7 @@ const char *name()
   return _("lut 3D");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("perform color space corrections and apply look"),
                                       _("corrective or creative"),
@@ -154,7 +154,7 @@ int default_group()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_rgb;
+  return IOP_CS_RGB;
 }
 
 int legacy_params(dt_iop_module_t *self, const void *const old_params, const int old_version, void *new_params,
@@ -993,7 +993,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   const int devid = piece->pipe->devid;
   const int width = roi_in->width;
   const int height = roi_in->height;
-  const size_t sizes[] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+  const size_t sizes[] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
 
   if (clut && level)
   {
@@ -1489,7 +1489,7 @@ gboolean check_extension(char *filename)
   return res;
 }
 
-static gint list_str_cmp(gconstpointer a, gconstpointer b)
+static gint array_str_cmp(gconstpointer a, gconstpointer b)
 {
   return g_strcmp0(((dt_bauhaus_combobox_entry_t *)a)->label, ((dt_bauhaus_combobox_entry_t *)b)->label);
 }
@@ -1524,7 +1524,7 @@ static void update_filepath_combobox(dt_iop_lut3d_gui_data_t *g, char *filepath,
       }
       dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(g->filepath);
       dt_bauhaus_combobox_data_t *combo_data = &w->data.combobox;
-      combo_data->entries = g_list_sort(combo_data->entries, list_str_cmp);
+      g_ptr_array_sort(combo_data->entries, array_str_cmp);
       closedir(d);
     }
     if (!dt_bauhaus_combobox_set_from_text(g->filepath, filepath))
@@ -1644,8 +1644,6 @@ void gui_update(dt_iop_module_t *self)
     update_filepath_combobox(g, p->filepath, lutfolder);
   }
   g_free(lutfolder);
-  dt_bauhaus_combobox_set(g->colorspace, p->colorspace);
-  dt_bauhaus_combobox_set(g->interpolation, p->interpolation);
 
   _show_hide_colorspace(self);
 
@@ -1751,6 +1749,9 @@ void gui_cleanup(dt_iop_module_t *self)
   IOP_GUI_FREE;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

@@ -55,6 +55,8 @@ typedef struct dt_screen_pos
   dt_image_pos print_area; // this is for reference and is the box of the
                            // grey area in the white page (in pixels) in print
                            // module. it is the print area (without margins).
+  gboolean borderless;     // whether the print is borderless (user's margins below
+                           // hardware margins.
 } dt_screen_pos;
 
 typedef struct dt_images_box
@@ -77,7 +79,7 @@ void dt_printing_clear_boxes(dt_images_box *imgs);
 /* (x, y) -> (width, height) are in pixels (on screen position) */
 void dt_printing_setup_display(dt_images_box *imgs,
                                const float px, const float py, const float pwidth, const float pheight,
-                               const float ax, const float ay, const float awidth, const float aheight);
+                               const float ax, const float ay, const float awidth, const float aheight, gboolean borderless);
 
 void dt_printing_setup_box(dt_images_box *imgs, const int idx,
                            const float x, const float y,
@@ -100,6 +102,9 @@ void dt_printing_get_screen_rel_pos(const dt_images_box *imgs, const dt_image_bo
 void dt_printing_get_image_pos_mm(const dt_images_box *imgs, const dt_image_box *img, dt_image_pos *pos);
 void dt_printing_get_image_pos(const dt_images_box *imgs, const dt_image_box *img, dt_image_pos *pos);
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

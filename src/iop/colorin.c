@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2009-2021 darktable developers.
+    Copyright (C) 2009-2022 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -40,11 +40,13 @@
 #ifdef HAVE_LIBAVIF
 #include "common/imageio_avif.h"
 #endif
+#ifdef HAVE_LIBHEIF
+#include "common/imageio_heif.h"
+#endif
 #include "develop/imageop_math.h"
 #include "develop/imageop_gui.h"
 #include "iop/iop_api.h"
 
-#include "external/adobe_coeff.c"
 #if defined(__SSE__)
 #include <xmmintrin.h>
 #endif
@@ -127,7 +129,7 @@ const char *name()
   return _("input color profile");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("convert any RGB input to pipeline reference RGB\n"
                                         "using color profiles to remap RGB values"),
@@ -149,7 +151,7 @@ int flags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_rgb;
+  return IOP_CS_RGB;
 }
 
 int input_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe,
@@ -159,15 +161,15 @@ int input_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe,
   {
     const dt_iop_colorin_data_t *const d = (dt_iop_colorin_data_t *)piece->data;
     if(d->type == DT_COLORSPACE_LAB)
-      return iop_cs_Lab;
+      return IOP_CS_LAB;
   }
-  return iop_cs_rgb;
+  return IOP_CS_RGB;
 }
 
 int output_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe,
                       dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_LAB;
 }
 
 static void _resolve_work_profile(dt_colorspaces_color_profile_type_t *work_type, char *work_filename)
@@ -592,7 +594,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     return TRUE;
   }
 
-  size_t sizes[] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+  size_t sizes[] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
   dev_m = dt_opencl_copy_host_to_device_constant(devid, sizeof(float) * 9, cmat);
   if(dev_m == NULL) goto error;
   dev_l = dt_opencl_copy_host_to_device_constant(devid, sizeof(float) * 9, lmat);
@@ -675,7 +677,7 @@ static void process_cmatrix_bm(struct dt_iop_module_t *self, dt_dev_pixelpipe_io
   transpose_3xSSE(d->nmatrix, nmatrix);
   dt_colormatrix_t lmatrix;
   transpose_3xSSE(d->lmatrix, lmatrix);
-  
+
     // fprintf(stderr, "Using cmatrix codepath\n");
     // only color matrix. use our optimized fast path!
 #ifdef _OPENMP
@@ -737,7 +739,7 @@ static void process_cmatrix_fastpath_simple(struct dt_iop_module_t *self, dt_dev
 
   dt_colormatrix_t cmatrix;
   transpose_3xSSE(d->cmatrix, cmatrix);
-  
+
 // fprintf(stderr, "Using cmatrix codepath\n");
 // only color matrix. use our optimized fast path!
 #ifdef _OPENMP
@@ -768,7 +770,7 @@ static void process_cmatrix_fastpath_clipping(struct dt_iop_module_t *self, dt_d
   dt_colormatrix_t lmatrix;
   transpose_3xSSE(d->nmatrix, nmatrix);
   transpose_3xSSE(d->lmatrix, lmatrix);
-  
+
 // fprintf(stderr, "Using cmatrix codepath\n");
 // only color matrix. use our optimized fast path!
 #ifdef _OPENMP
@@ -827,7 +829,7 @@ static void process_cmatrix_proper(struct dt_iop_module_t *self, dt_dev_pixelpip
   transpose_3xSSE(d->nmatrix, nmatrix);
   dt_colormatrix_t lmatrix;
   transpose_3xSSE(d->lmatrix, lmatrix);
-  
+
 // fprintf(stderr, "Using cmatrix codepath\n");
 // only color matrix. use our optimized fast path!
 #ifdef _OPENMP
@@ -1533,17 +1535,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
   }
   if(type == DT_COLORSPACE_STANDARD_MATRIX)
   {
-    // color matrix
-    float cam_xyz[12];
-    cam_xyz[0] = NAN;
-
-    // Use the legacy name if it has been set to honor the partial matching matrices of low-end Canons
-    if (pipe->image.camera_legacy_makermodel[0])
-      dt_dcraw_adobe_coeff(pipe->image.camera_legacy_makermodel, (float(*)[12])cam_xyz);
-    else
-      dt_dcraw_adobe_coeff(pipe->image.camera_makermodel, (float(*)[12])cam_xyz);
-
-    if(isnan(cam_xyz[0]))
+    if(isnan(pipe->image.adobe_XYZ_to_CAM[0][0]))
     {
       if(dt_image_is_matrix_correction_supported(&pipe->image))
       {
@@ -1554,7 +1546,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
     }
     else
     {
-      d->input = dt_colorspaces_create_xyzimatrix_profile((float(*)[3])cam_xyz);
+      d->input = dt_colorspaces_create_xyzimatrix_profile((float(*)[3])pipe->image.adobe_XYZ_to_CAM);
       d->clear_input = 1;
     }
   }
@@ -1845,7 +1837,6 @@ void reload_defaults(dt_iop_module_t *module)
     {
       img->profile_size = dt_imageio_j2k_read_profile(filename, &img->profile);
       color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-
     }
 #endif
     // the ldr test just checks for magics in the file header
@@ -1862,26 +1853,27 @@ void reload_defaults(dt_iop_module_t *module)
 #ifdef HAVE_LIBAVIF
     else if(!strcmp(ext, "avif"))
     {
-      struct avif_color_profile cp = {
-          .type = DT_COLORSPACE_NONE,
-      };
-      const dt_imageio_retval_t ret =
-          dt_imageio_avif_read_color_profile(filename, &cp);
-      if (ret != DT_IMAGEIO_OK)
-      {
-        g_free(ext);
-        return;
-      }
-      if (cp.type != DT_COLORSPACE_NONE)
-      {
-        color_profile = cp.type;
-      }
-      else
-      {
-        img->profile_size = cp.icc_profile_size;
-        img->profile      = cp.icc_profile;
+      dt_colorspaces_cicp_t cicp;
+      img->profile_size = dt_imageio_avif_read_profile(filename, &img->profile, &cicp);
+      /* try the nclx box before falling back to any ICC profile */
+      if((color_profile = dt_colorspaces_cicp_to_type(&cicp, filename)) == DT_COLORSPACE_NONE)
         color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-      }
+    }
+#endif
+#ifdef HAVE_LIBHEIF
+    else if(!strcmp(ext, "heif")
+         || !strcmp(ext, "heic")
+         || !strcmp(ext, "hif")
+  #ifndef HAVE_LIBAVIF
+         || !strcmp(ext, "avif")
+  #endif
+         )
+    {
+      dt_colorspaces_cicp_t cicp;
+      img->profile_size = dt_imageio_heif_read_profile(filename, &img->profile, &cicp);
+      /* try the nclx box before falling back to any ICC profile */
+      if((color_profile = dt_colorspaces_cicp_to_type(&cicp, filename)) == DT_COLORSPACE_NONE)
+        color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
     }
 #endif
     g_free(ext);
@@ -1897,7 +1889,7 @@ void reload_defaults(dt_iop_module_t *module)
     d->type = color_profile;
   else if(img->flags & DT_IMAGE_4BAYER) // 4Bayer images have been pre-converted to rec2020
     d->type = DT_COLORSPACE_LIN_REC2020;
-  else if (img->flags & DT_IMAGE_MONOCHROME)
+  else if(dt_image_is_monochrome(img))
     d->type = DT_COLORSPACE_LIN_REC709;
   else if(img->colorspace == DT_IMAGE_COLORSPACE_SRGB)
     d->type = DT_COLORSPACE_SRGB;
@@ -1954,17 +1946,9 @@ static void update_profile_list(dt_iop_module_t *self)
     g->image_profiles = g_list_append(g->image_profiles, prof);
     prof->in_pos = ++pos;
   }
-  // get color matrix from raw image:
-  float cam_xyz[12];
-  cam_xyz[0] = NAN;
 
-  // Use the legacy name if it has been set to honor the partial matching matrices of low-end Canons
-  if (self->dev->image_storage.camera_legacy_makermodel[0])
-    dt_dcraw_adobe_coeff(self->dev->image_storage.camera_legacy_makermodel, (float(*)[12])cam_xyz);
-  else
-    dt_dcraw_adobe_coeff(self->dev->image_storage.camera_makermodel, (float(*)[12])cam_xyz);
-
-  if(!isnan(cam_xyz[0]) && !(self->dev->image_storage.flags & DT_IMAGE_4BAYER))
+  if(!isnan(self->dev->image_storage.adobe_XYZ_to_CAM[0][0])
+     && !(self->dev->image_storage.flags & DT_IMAGE_4BAYER))
   {
     dt_colorspaces_color_profile_t *prof
         = (dt_colorspaces_color_profile_t *)calloc(1, sizeof(dt_colorspaces_color_profile_t));
@@ -2108,6 +2092,9 @@ void gui_cleanup(struct dt_iop_module_t *self)
   IOP_GUI_FREE;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

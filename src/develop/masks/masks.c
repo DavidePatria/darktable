@@ -24,6 +24,7 @@
 #include "common/undo.h"
 #include "develop/blend.h"
 #include "develop/imageop.h"
+#include "develop/imageop_gui.h"
 
 #pragma GCC diagnostic ignored "-Wshadow"
 
@@ -862,11 +863,13 @@ void dt_masks_read_masks_history(dt_develop_t *dev, const int imgid)
   int num_prev = -1;
 
   sqlite3_stmt *stmt;
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(
       dt_database_get(darktable.db),
       "SELECT imgid, formid, form, name, version, points, points_count, source, num "
       "FROM main.masks_history WHERE imgid = ?1 ORDER BY num",
       -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
 
   while(sqlite3_step(stmt) == SQLITE_ROW)
@@ -956,10 +959,13 @@ void dt_masks_write_masks_history_item(const int imgid, const int num, dt_masks_
   sqlite3_stmt *stmt;
 
   // write the form into the database
-  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "INSERT INTO main.masks_history (imgid, num, formid, form, name, "
-                                                             "version, points, points_count,source) VALUES "
-                                                             "(?1, ?9, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+  // clang-format off
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                              "INSERT INTO main.masks_history (imgid, num, formid, form, name, "
+                              "version, points, points_count,source) VALUES "
+                              "(?1, ?9, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 9, num);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, form->formid);
@@ -1061,6 +1067,10 @@ int dt_masks_events_button_released(struct dt_iop_module_t *module, double x, do
   pzx += 0.5f;
   pzy += 0.5f;
 
+  if(darktable.develop->mask_form_selected_id)
+    dt_dev_masks_selection_change(darktable.develop, module,
+                                  darktable.develop->mask_form_selected_id, FALSE);
+
   if(form->functions)
     return form->functions->button_released(module, pzx, pzy, which, state, form, 0, gui, 0);
 
@@ -1119,9 +1129,12 @@ int dt_masks_events_mouse_scrolled(struct dt_iop_module_t *module, double x, dou
   pzy += 0.5f;
 
   int ret = 0;
+  const gboolean incr = dt_mask_scroll_increases(up);
 
   if(form->functions)
-    ret = form->functions->mouse_scrolled(module, pzx, pzy, up, state, form, 0, gui, 0);
+    ret = form->functions->mouse_scrolled(module, pzx, pzy,
+                                          incr ? 1 : 0,
+                                          state, form, 0, gui, 0);
 
   if(gui)
   {
@@ -1129,8 +1142,7 @@ int dt_masks_events_mouse_scrolled(struct dt_iop_module_t *module, double x, dou
     if(gui->creation && dt_modifier_is(state, GDK_CONTROL_MASK))
     {
       float opacity = dt_conf_get_float("plugins/darkroom/masks/opacity");
-      float amount = 0.05f;
-      if(!up) amount = -amount;
+      const float amount = incr ? 0.05f : -0.05f;
 
       opacity = CLAMP(opacity + amount, 0.05f, 1.0f);
       dt_conf_set_float("plugins/darkroom/masks/opacity", opacity);
@@ -1299,9 +1311,9 @@ void dt_masks_set_edit_mode(struct dt_iop_module_t *module, dt_masks_edit_mode_t
   dt_masks_change_form_gui(grp);
   darktable.develop->form_gui->edit_mode = value;
   if(value && form)
-    dt_dev_masks_selection_change(darktable.develop, form->formid, FALSE);
+    dt_dev_masks_selection_change(darktable.develop, NULL, form->formid, FALSE);
   else
-    dt_dev_masks_selection_change(darktable.develop, 0, FALSE);
+    dt_dev_masks_selection_change(darktable.develop, NULL, 0, FALSE);
 
   if(bd->masks_support)
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bd->masks_edit),
@@ -1336,9 +1348,9 @@ void dt_masks_set_edit_mode_single_form(struct dt_iop_module_t *module, const in
   darktable.develop->form_gui->edit_mode = value;
 
   if(value && form)
-    dt_dev_masks_selection_change(darktable.develop, formid, FALSE);
+    dt_dev_masks_selection_change(darktable.develop, NULL, formid, FALSE);
   else
-    dt_dev_masks_selection_change(darktable.develop, 0, FALSE);
+    dt_dev_masks_selection_change(darktable.develop, NULL, 0, FALSE);
 
   dt_control_queue_redraw_center();
 }
@@ -1736,8 +1748,7 @@ void dt_masks_form_change_opacity(dt_masks_form_t *form, int parentid, int up)
   // we first need to test if the opacity can be set to the form
   if(form->type & DT_MASKS_GROUP) return;
   const int id = form->formid;
-  float amount = 0.05f;
-  if(!up) amount = -amount;
+  const float amount = up ? 0.05f : -0.05f;
 
   // so we change the value inside the group
   for(GList *fpts = grp->points; fpts; fpts = g_list_next(fpts))
@@ -1774,14 +1785,14 @@ void dt_masks_form_move(dt_masks_form_t *grp, int formid, int up)
     pos++;
   }
 
-  // we remove the form and readd it
+  // we remove the form and read it
   if(grpt)
   {
-    if(up && pos == 0) return;
-    if(!up && pos == g_list_length(grp->points) - 1) return;
+    if(!up && pos == 0) return;
+    if(up && pos == g_list_length(grp->points) - 1) return;
 
     grp->points = g_list_remove(grp->points, grpt);
-    if(up)
+    if(!up)
       pos -= 1;
     else
       pos += 1;
@@ -2158,14 +2169,14 @@ int dt_masks_point_in_form_near(float x, float y, float *points, int points_star
 // allow to select a shape inside an iop
 void dt_masks_select_form(struct dt_iop_module_t *module, dt_masks_form_t *sel)
 {
-  int selection_changed = 0;
+  gboolean selection_changed = FALSE;
 
   if(sel)
   {
     if(sel->formid != darktable.develop->mask_form_selected_id)
     {
       darktable.develop->mask_form_selected_id = sel->formid;
-      selection_changed = 1;
+      selection_changed = TRUE;
     }
   }
   else
@@ -2173,12 +2184,13 @@ void dt_masks_select_form(struct dt_iop_module_t *module, dt_masks_form_t *sel)
     if(darktable.develop->mask_form_selected_id != 0)
     {
       darktable.develop->mask_form_selected_id = 0;
-      selection_changed = 1;
+      selection_changed = TRUE;
     }
   }
   if(selection_changed)
   {
-    if(!module && darktable.develop->mask_form_selected_id == 0) module = darktable.develop->gui_module;
+    if(!module && darktable.develop->mask_form_selected_id == 0)
+      module = darktable.develop->gui_module;
     if(module)
     {
       if(module->masks_selection_changed)
@@ -2381,6 +2393,9 @@ void dt_masks_calculate_source_pos_value(dt_masks_form_gui_t *gui, const int mas
 
 #include "detail.c"
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

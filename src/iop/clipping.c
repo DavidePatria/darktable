@@ -299,6 +299,10 @@ static inline void adjust_aabb(const float *p, float *aabb)
   aabb[3] = fmaxf(aabb[3], p[1]);
 }
 
+const char *deprecated_msg()
+{
+  return _("this module is deprecated. please use the crop, orientation and/or rotate and perspective modules instead.");
+}
 
 const char *name()
 {
@@ -310,7 +314,7 @@ const char *aliases()
   return _("reframe|perspective|keystone|distortion");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("change the framing and correct the perspective"),
                                       _("corrective or creative"),
@@ -327,7 +331,7 @@ int default_group()
 int flags()
 {
   return IOP_FLAGS_ALLOW_TILING | IOP_FLAGS_TILING_FULL_ROI | IOP_FLAGS_ONE_INSTANCE | IOP_FLAGS_ALLOW_FAST_PIPE
-         | IOP_FLAGS_GUIDES_SPECIAL_DRAW | IOP_FLAGS_GUIDES_WIDGET;
+         | IOP_FLAGS_GUIDES_SPECIAL_DRAW | IOP_FLAGS_GUIDES_WIDGET | IOP_FLAGS_DEPRECATED;
 }
 
 int operation_tags()
@@ -343,35 +347,7 @@ int operation_tags_filter()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_rgb;
-}
-
-static void _display_crop_error(struct dt_iop_module_t *self)
-{
-  // check if crop module is activated and show an alert if it's the case
-  // as crop is later in the pipe, cropping here will have unexpected results
-
-  ++darktable.gui->reset;
-
-  gboolean trouble = FALSE;
-  const dt_dev_history_item_t *crop = dt_dev_get_history_item(self->dev, "crop");
-  if(crop && crop->enabled) trouble = TRUE;
-
-  if(trouble)
-  {
-    dt_iop_set_module_trouble_message(self, _("cropping may be applied twice"),
-                                      _("crop module is enabled.\n"
-                                        "cropping image here too will result in double cropping\n"
-                                        "which may provide unexpected results."),
-                                      "possible double crop");
-  }
-  else
-  {
-    // no longer in trouble
-    dt_iop_set_module_trouble_message(self, NULL, NULL, NULL);
-  }
-
-  --darktable.gui->reset;
+  return IOP_CS_RGB;
 }
 
 static int gui_has_focus(struct dt_iop_module_t *self)
@@ -1131,8 +1107,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
 
     size_t sizes[3];
 
-    sizes[0] = ROUNDUPWD(width);
-    sizes[1] = ROUNDUPHT(height);
+    sizes[0] = ROUNDUPDWD(width, devid);
+    sizes[1] = ROUNDUPDHT(height, devid);
     sizes[2] = 1;
     dt_opencl_set_kernel_arg(devid, crkernel, 0, sizeof(cl_mem), &dev_in);
     dt_opencl_set_kernel_arg(devid, crkernel, 1, sizeof(cl_mem), &dev_out);
@@ -1351,7 +1327,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
     // we show a error on stderr if we have clamped something
     if(d->cx != p->cx || d->cy != p->cy || d->cw != fabsf(p->cw) || d->ch != fabsf(p->ch))
     {
-      fprintf(stderr, "[crop&rotate] invalid crop datas for %d : x=%0.04f y=%0.04f w=%0.04f h=%0.04f\n",
+      fprintf(stderr, "[crop&rotate] invalid crop data for %d : x=%0.04f y=%0.04f w=%0.04f h=%0.04f\n",
               pipe->image.id, p->cx, p->cy, p->cw, p->ch);
     }
   }
@@ -1375,10 +1351,6 @@ void gui_focus(struct dt_iop_module_t *self, gboolean in)
 {
   dt_iop_clipping_gui_data_t *g = (dt_iop_clipping_gui_data_t *)self->gui_data;
   dt_iop_clipping_params_t *p = (dt_iop_clipping_params_t *)self->params;
-
-  // check if crop module is activated and show an alert if it's the case
-  // even if c&r is not still activated
-  if(in) _display_crop_error(self);
 
   if(self->enabled)
   {
@@ -1889,8 +1861,6 @@ void gui_changed(dt_iop_module_t *self, GtkWidget *w, void *previous)
   commit_box(self, g, p);
 
   if(w == g->crop_auto) dt_control_queue_redraw_center();
-
-  _display_crop_error(self);
 }
 
 void gui_reset(struct dt_iop_module_t *self)
@@ -1971,12 +1941,6 @@ void gui_update(struct dt_iop_module_t *self)
   dt_iop_clipping_gui_data_t *g = (dt_iop_clipping_gui_data_t *)self->gui_data;
   dt_iop_clipping_params_t *p = (dt_iop_clipping_params_t *)self->params;
 
-  /* update ui elements */
-  dt_bauhaus_slider_set(g->angle, p->angle);
-  dt_bauhaus_slider_set(g->cx, p->cx);
-  dt_bauhaus_slider_set(g->cy, p->cy);
-  dt_bauhaus_slider_set(g->cw, p->cw);
-  dt_bauhaus_slider_set(g->ch, p->ch);
   int hvflip = 0;
   if(p->cw < 0)
   {
@@ -2054,10 +2018,6 @@ void gui_update(struct dt_iop_module_t *self)
   g->clip_y = CLAMPF(p->cy, 0.0f, 0.9f);
   g->clip_w = CLAMPF(fabsf(p->cw) - p->cx, 0.1f, 1.0f - g->clip_x);
   g->clip_h = CLAMPF(fabsf(p->ch) - p->cy, 0.1f, 1.0f - g->clip_y);
-
-  dt_bauhaus_combobox_set(g->crop_auto, p->crop_auto);
-
-  _display_crop_error(self);
 }
 
 static void hvflip_callback(GtkWidget *widget, dt_iop_module_t *self)
@@ -2083,16 +2043,6 @@ static void key_swap_callback(GtkAccelGroup *accel_group, GObject *acceleratable
   p->ratio_d = -p->ratio_d;
   apply_box_aspect(self, GRAB_HORIZONTAL);
   dt_control_queue_redraw_center();
-}
-
-static gboolean key_commit_callback(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval,
-                                    GdkModifierType modifier, gpointer data)
-{
-  dt_iop_module_t *self = (dt_iop_module_t *)data;
-  dt_iop_clipping_gui_data_t *g = (dt_iop_clipping_gui_data_t *)self->gui_data;
-  dt_iop_clipping_params_t *p = (dt_iop_clipping_params_t *)self->params;
-  commit_box(self, g, p);
-  return TRUE;
 }
 
 static void aspect_flip(GtkWidget *button, dt_iop_module_t *self)
@@ -2130,18 +2080,9 @@ static gchar *format_aspect(gchar *original, int adim, int bdim)
   return g_strdup_printf("%s  %4.2f", original, (float)adim / (float)bdim);
 }
 
-static void _develop_ui_pipe_finished_callback(gpointer instance, gpointer user_data)
-{
-  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
-  _display_crop_error(self);
-}
-
 void gui_init(struct dt_iop_module_t *self)
 {
   dt_iop_clipping_gui_data_t *g = IOP_GUI_ALLOC(clipping);
-
-  DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_DEVELOP_UI_PIPE_FINISHED,
-                                  G_CALLBACK(_develop_ui_pipe_finished_callback), self);
 
   g->aspect_list = NULL;
   g->clip_x = g->clip_y = g->handle_x = g->handle_y = 0.0;
@@ -2176,9 +2117,8 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), g->hvflip, TRUE, TRUE, 0);
 
   g->angle = dt_bauhaus_slider_from_params(self, N_("angle"));
-  dt_bauhaus_slider_set_step(g->angle, 0.25);
   dt_bauhaus_slider_set_factor(g->angle, -1.0);
-  dt_bauhaus_slider_set_format(g->angle, "%.02f°");
+  dt_bauhaus_slider_set_format(g->angle, "°");
   gtk_widget_set_tooltip_text(g->angle, _("right-click and drag a line on the image to drag a straight line"));
 
   g->keystone_type = dt_bauhaus_combobox_new(self);
@@ -2315,28 +2255,26 @@ void gui_init(struct dt_iop_module_t *self)
 
   g->cx = dt_bauhaus_slider_from_params(self, "cx");
   dt_bauhaus_slider_set_digits(g->cx, 4);
-  dt_bauhaus_slider_set_factor(g->cx, 100.0);
-  dt_bauhaus_slider_set_format(g->cx, "%0.2f %%");
+  dt_bauhaus_slider_set_format(g->cx, "%");
   gtk_widget_set_tooltip_text(g->cx, _("the left margin cannot overlap with the right margin"));
 
   g->cw = dt_bauhaus_slider_from_params(self, "cw");
   dt_bauhaus_slider_set_digits(g->cw, 4);
   dt_bauhaus_slider_set_factor(g->cw, -100.0);
   dt_bauhaus_slider_set_offset(g->cw, 100.0);
-  dt_bauhaus_slider_set_format(g->cw, "%0.2f %%");
+  dt_bauhaus_slider_set_format(g->cw, "%");
   gtk_widget_set_tooltip_text(g->cw, _("the right margin cannot overlap with the left margin"));
 
   g->cy = dt_bauhaus_slider_from_params(self, "cy");
   dt_bauhaus_slider_set_digits(g->cy, 4);
-  dt_bauhaus_slider_set_factor(g->cy, 100.0);
-  dt_bauhaus_slider_set_format(g->cy, "%0.2f %%");
+  dt_bauhaus_slider_set_format(g->cy, "%");
   gtk_widget_set_tooltip_text(g->cy, _("the top margin cannot overlap with the bottom margin"));
 
   g->ch = dt_bauhaus_slider_from_params(self, "ch");
   dt_bauhaus_slider_set_digits(g->ch, 4);
   dt_bauhaus_slider_set_factor(g->ch, -100.0);
   dt_bauhaus_slider_set_offset(g->ch, 100.0);
-  dt_bauhaus_slider_set_format(g->ch, "%0.2f %%");
+  dt_bauhaus_slider_set_format(g->ch, "%");
   gtk_widget_set_tooltip_text(g->ch, _("the bottom margin cannot overlap with the top margin"));
 
   self->widget = GTK_WIDGET(g->notebook);
@@ -2356,7 +2294,6 @@ void gui_cleanup(struct dt_iop_module_t *self)
   g_list_free_full(g->aspect_list, free_aspect);
   g->aspect_list = NULL;
 
-  DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_develop_ui_pipe_finished_callback), self);
   IOP_GUI_FREE;
 }
 
@@ -2390,7 +2327,7 @@ static void gui_draw_sym(cairo_t *cr, float x, float y, float scale, gboolean ac
   pango_layout_set_font_description(layout, desc);
   pango_layout_set_text(layout, "ꝏ", -1);
   pango_layout_get_pixel_extents(layout, &ink, NULL);
-  dt_draw_set_color_overlay(cr, 0.5, 0.7);
+  dt_draw_set_color_overlay(cr, TRUE, 0.5);
   dt_gui_draw_rounded_rectangle(
       cr, ink.width + DT_PIXEL_APPLY_DPI(4) * scale, ink.height + DT_PIXEL_APPLY_DPI(8) * scale,
       x - ink.width / 2.0f - DT_PIXEL_APPLY_DPI(2) * scale, y - ink.height / 2.0f - DT_PIXEL_APPLY_DPI(4) * scale);
@@ -2451,7 +2388,7 @@ void gui_post_expose(struct dt_iop_module_t *self, cairo_t *cr, int32_t width, i
   {
     cairo_set_line_width(cr, dashes / 2.0);
     cairo_rectangle(cr, g->clip_x * wd, g->clip_y * ht, g->clip_w * wd, g->clip_h * ht);
-    dt_draw_set_color_overlay(cr, 0.7, 1.0);
+    dt_draw_set_color_overlay(cr, TRUE, 1.0);
     cairo_stroke(cr);
   }
 
@@ -2500,7 +2437,7 @@ void gui_post_expose(struct dt_iop_module_t *self, cairo_t *cr, int32_t width, i
   dt_guides_draw(cr, g->clip_x * wd, g->clip_y * ht, g->clip_w * wd, g->clip_h * ht, zoom_scale);
 
   cairo_set_line_width(cr, DT_PIXEL_APPLY_DPI(2.0) / zoom_scale);
-  dt_draw_set_color_overlay(cr, 0.3, 1.0);
+  dt_draw_set_color_overlay(cr, FALSE, 1.0);
   const int border = DT_PIXEL_APPLY_DPI(30.0) / zoom_scale;
   if(g->straightening)
   {
@@ -2764,7 +2701,7 @@ void gui_post_expose(struct dt_iop_module_t *self, cairo_t *cr, int32_t width, i
                                     c[0] - ink.width / 2.0f - DT_PIXEL_APPLY_DPI(4) * pr_d,
                                     c[1] - ink.height / 2.0f - DT_PIXEL_APPLY_DPI(6) * pr_d);
       cairo_move_to(cr, c[0] - ink.width / 2.0, c[1] - 3.0 * ink.height / 4.0);
-      dt_draw_set_color_overlay(cr, 0.2, 0.9);
+      dt_draw_set_color_overlay(cr, FALSE, 0.9);
       pango_cairo_show_layout(cr, layout);
       pango_font_description_free(desc);
       g_object_unref(layout);
@@ -3097,7 +3034,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
       dt_control_change_cursor(GDK_BOTTOM_LEFT_CORNER);
     else if(grab == GRAB_NONE)
     {
-      dt_control_hinter_message(darktable.control, _("<b>commit</b>: double click, <b>straighten</b>: right-drag"));
+      dt_control_hinter_message(darktable.control, _("<b>commit</b>: double-click, <b>straighten</b>: right-drag"));
       dt_control_change_cursor(GDK_LEFT_PTR);
     }
     if(grab != GRAB_NONE)
@@ -3162,7 +3099,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
     else
     {
       dt_control_hinter_message(darktable.control, _("<b>move</b>: drag, <b>move vertically</b>: shift+drag, <b>move horizontally</b>: ctrl+drag\n"
-                                                     "<b>straighten</b>: right-drag, <b>commit</b>: double click"));
+                                                     "<b>straighten</b>: right-drag, <b>commit</b>: double-click"));
     }
     dt_control_queue_redraw_center();
   }
@@ -3173,6 +3110,9 @@ static void commit_box(dt_iop_module_t *self, dt_iop_clipping_gui_data_t *g, dt_
 {
   if(darktable.gui->reset) return;
   g->cropping = 0;
+  const dt_boundingbox_t old = { p->cx, p->cy, p->cw, p->ch };
+  const float eps = 1e-6f; // threshold to avoid rounding errors
+
   if(!self->enabled)
   {
     // first time crop, if any data is stored in p, it's obsolete:
@@ -3196,7 +3136,9 @@ static void commit_box(dt_iop_module_t *self, dt_iop_clipping_gui_data_t *g, dt_
     }
   }
   g->applied = 1;
-  dt_dev_add_history_item(darktable.develop, self, TRUE);
+  const gboolean changed = fabs(p->cx - old[0]) > eps || fabs(p->cy - old[1]) > eps || fabs(p->cw - old[2]) > eps || fabs(p->ch - old[3]) > eps;
+  // fprintf(stderr, "[crop commit box] %i:  %e %e %e %e\n", changed, p->cx - old[0], p->cy - old[1], p->cw - old[2], p->ch - old[3]);
+  if(changed) dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
 int button_released(struct dt_iop_module_t *self, double x, double y, int which, uint32_t state)
@@ -3410,16 +3352,6 @@ int button_pressed(struct dt_iop_module_t *self, double x, double y, double pres
     return 0;
 }
 
-void init_key_accels(dt_iop_module_so_t *self)
-{
-  dt_accel_register_iop(self, TRUE, N_("commit"), GDK_KEY_Return, 0);
-}
-
-void connect_key_accels(dt_iop_module_t *self)
-{
-  dt_accel_connect_iop(self, "commit", g_cclosure_new(G_CALLBACK(key_commit_callback), (gpointer)self, NULL));
-}
-
 GSList *mouse_actions(struct dt_iop_module_t *self)
 {
   GSList *lm = NULL;
@@ -3433,6 +3365,9 @@ GSList *mouse_actions(struct dt_iop_module_t *self)
 #undef PHI
 #undef INVPHI
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

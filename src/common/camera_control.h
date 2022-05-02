@@ -202,15 +202,16 @@ typedef struct dt_camctl_listener_t
 
   /** Invoked before images are fetched from camera and when tethered capture fetching an image. \note That
    * only one listener should implement this at time... */
-  const char *(*request_image_path)(const dt_camera_t *camera, time_t *exif_time, void *data);
+  const char *(*request_image_path)(const dt_camera_t *camera, char *exif_time, void *data);
 
   /** Invoked before images are fetched from camera and when tethered capture fetching an image. \note That
    * only one listener should implement this at time... */
-  const char *(*request_image_filename)(const dt_camera_t *camera, const char *filename, time_t *exif_time,
+  const char *(*request_image_filename)(const dt_camera_t *camera, const char *filename, const char *exif_time,
                                         void *data);
 
   /** Invoked when a image is downloaded while in tethered mode or by import */
-  void (*image_downloaded)(const dt_camera_t *camera, const char *filename, void *data);
+  void (*image_downloaded)(const dt_camera_t *camera, const char *in_path, const char *in_filename,
+                           const char *filename, void *data);
 
   /** Invoked when a image is found on storage.. such as from dt_camctl_get_previews(), if 0 is returned the
    * recurse is stopped.. */
@@ -242,6 +243,15 @@ typedef enum dt_camera_preview_flags_t
   CAMCTL_IMAGE_PREVIEW_DATA = 1,
 } dt_camera_preview_flags_t;
 
+/** camera file info */
+typedef struct dt_camera_files_t
+{
+  /** file name */
+  char *filename;
+  /** timestamp */
+  time_t timestamp;
+} dt_camera_files_t;
+
 /** gphoto2 device updating function for thread */
 void *dt_update_cameras_thread(void *ptr);
 /** Initializes the gphoto and cam control, returns NULL if failed */
@@ -264,6 +274,9 @@ int dt_camctl_can_enter_tether_mode(const dt_camctl_t *c, const dt_camera_t *cam
 void dt_camctl_tether_mode(const dt_camctl_t *c, const dt_camera_t *cam, gboolean enable);
 /** Imports the images in list from specified camera */
 void dt_camctl_import(const dt_camctl_t *c, const dt_camera_t *cam, GList *images);
+/** return the timestamp for file from camera CAUTION camera mutex already own*/
+time_t dt_camctl_get_image_file_timestamp(const dt_camctl_t *c, const char *in_path,
+                                          const char *in_filename);
 /** return the list of images from camera */
 GList *dt_camctl_get_images_list(const dt_camctl_t *c, dt_camera_t *cam);
 /** return the thumbnail of a camera image */
@@ -313,6 +326,9 @@ const char *dt_camctl_camera_property_get_next_choice(const dt_camctl_t *c, cons
 void dt_camctl_camera_build_property_menu(const dt_camctl_t *c, const dt_camera_t *cam, GtkMenu **menu,
                                           GCallback item_activate, gpointer user_data);
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

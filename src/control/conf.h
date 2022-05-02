@@ -34,6 +34,7 @@ typedef enum dt_confgen_type_t
   DT_INT64,
   DT_FLOAT,
   DT_BOOL,
+  DT_PATH,
   DT_STRING,
   DT_ENUM
 } dt_confgen_type_t;
@@ -98,6 +99,7 @@ gboolean dt_conf_is_equal(const char *name, const char *value);
 void dt_conf_init(dt_conf_t *cf, const char *filename, GSList *override_entries);
 void dt_conf_cleanup(dt_conf_t *cf);
 int dt_conf_key_exists(const char *key);
+gboolean dt_conf_key_not_empty(const char *key);
 GSList *dt_conf_all_string_entries(const char *dir);
 void dt_conf_string_entry_free(gpointer data);
 
@@ -122,7 +124,11 @@ const char *dt_confgen_get_label(const char *name);
 const char *dt_confgen_get_tooltip(const char *name);
 
 gboolean dt_conf_is_default(const char *name);
+gchar* dt_conf_expand_default_dir(const char *dir);
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

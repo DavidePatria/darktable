@@ -250,7 +250,8 @@ void update_with_move(midi_device *midi, PmTimestamp timestamp, gint controller,
 {
   float new_position = dt_shortcut_move(midi->id, timestamp, controller, move);
 
-  if(midi->is_x_touch_mini && controller != 9 && controller != 10)
+  if(midi->is_x_touch_mini && midi->first_key == 8 ? controller <  9 /* layer A */
+                                                   : controller > 10 /* layer B */)
   {
     // Light pattern always for 1-8 range, but CC=1-8 (bank A) or 11-18 (bank B).
     if(isnan(new_position))
@@ -335,6 +336,10 @@ static gboolean poll_midi_devices(gpointer user_data)
 
         x_touch_mini_layer_B = event_data1 > 23;
 
+        const int key_num = event_data1 - midi->first_key + 1;
+        if(key_num > midi->num_keys && !midi->is_x_touch_mini)
+          midi->num_keys = key_num;
+
         dt_shortcut_key_press(midi->id, event[i].timestamp, event_data1);
         break;
       case 0x8:  // note off
@@ -359,6 +364,10 @@ static gboolean poll_midi_devices(gpointer user_data)
             event[j].message = 0; // don't process again later
           }
 
+        const int knob_num = event_data1 - midi->first_knob + 1;
+        if(knob_num > midi->num_knobs)
+          midi->num_knobs = knob_num;
+
         update_with_move(midi, event[i].timestamp, event_data1, accum);
 
         break;
@@ -366,12 +375,11 @@ static gboolean poll_midi_devices(gpointer user_data)
         continue; // x_touch_mini_layer_B has not been set
       }
 
-      if(midi->is_x_touch_mini && midi->first_knob != (x_touch_mini_layer_B ? 11 : 1))
+      if(midi->is_x_touch_mini && midi->first_key != (x_touch_mini_layer_B ? 32 : 8))
       {
-        midi->first_knob  = x_touch_mini_layer_B ? 11 : 1;
-        midi->first_key   = x_touch_mini_layer_B ? 32 : 8;
+        midi->first_key = x_touch_mini_layer_B ? 32 : 8;
 
-        for(int j = 0; (j != midi->first_knob || (j += midi->num_knobs)) && j < 128; j++) midi->last_known[j] = -1;
+        for(int j = 1; j <= 18 ; j++) midi->last_known[j] = -1;
       }
     }
   }
@@ -403,9 +411,10 @@ void midi_open_devices(dt_lib_module_t *self)
 
     if(info->input && !strstr(info->name, "Midi Through Port"))
     {
-      int dev = -1;
+      int dev = -1, encoding = 0, num_keys = 0;
 
       gchar **cur_dev = dev_strings;
+      gchar **cur_dev_par = NULL;
       for(; cur_dev && *cur_dev; cur_dev++)
       {
         if(**cur_dev == '-')
@@ -422,12 +431,21 @@ void midi_open_devices(dt_lib_module_t *self)
 
           if(dev > last_dev) last_dev = dev;
 
-          if(strstr(info->name, *cur_dev))
+          g_strfreev(cur_dev_par);
+          cur_dev_par = g_strsplit(*cur_dev, ":", 3);
+          if(*cur_dev_par && strstr(info->name, *cur_dev_par))
           {
+            if(*(cur_dev_par+1))
+            {
+              sscanf(*(cur_dev_par+1), "%d", &encoding);
+              if(*(cur_dev_par+2))
+                sscanf(*(cur_dev_par+2), "%d", &num_keys);
+            }
             break;
           }
         }
       }
+      g_strfreev(cur_dev_par);
 
       if(!cur_dev || !*cur_dev) dev = ++last_dev;
 
@@ -454,13 +472,14 @@ void midi_open_devices(dt_lib_module_t *self)
 
       midi->is_x_touch_mini = strstr(info->name, "X-TOUCH MINI") != NULL;
 
-      midi->num_knobs   = midi->is_x_touch_mini ?  8 : 128;
+      midi->encoding    = encoding;
+      midi->num_knobs   = midi->is_x_touch_mini ? 18 :   0;
       midi->first_knob  = midi->is_x_touch_mini ?  1 :   0;
-      midi->num_keys    = midi->is_x_touch_mini ? 16 : 128;
+      midi->num_keys    = midi->is_x_touch_mini ? 16 :   num_keys;
       midi->first_key   = midi->is_x_touch_mini ?  8 :   0;
       midi->first_light = 0;
 
-      midi->num_identical = midi->is_x_touch_mini ? 0 : 5; // countdown "relative down" moves received before switching to relative mode
+      midi->num_identical = midi->is_x_touch_mini || encoding ? 0 : 5; // countdown "relative down" moves received before switching to relative mode
       midi->last_received = -1;
       for(int j = 0; j < 128; j++) midi->last_known[j] = -1;
 
@@ -527,6 +546,8 @@ static gboolean _timeout_midi_update(gpointer user_data)
 
 void gui_init(dt_lib_module_t *self)
 {
+  dt_capabilities_add("midi");
+
   if(!self->widget)
   {
     self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -560,6 +581,9 @@ void gui_cleanup(dt_lib_module_t *self)
 
 #endif // HAVE_PORTMIDI
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

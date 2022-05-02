@@ -96,10 +96,10 @@ int default_group()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_rgb;
+  return IOP_CS_RGB;
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("create a softened image using the Orton effect"),
                                       _("creative"),
@@ -142,8 +142,8 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
 
   const float w = piece->iwidth * piece->iscale;
   const float h = piece->iheight * piece->iscale;
-  int mrad = sqrt(w * w + h * h) * 0.01;
-  int rad = mrad * (fmin(100.0, d->size + 1) / 100.0);
+  const int mrad = sqrt(w * w + h * h) * 0.01;
+  const int rad = mrad * (fmin(100.0, d->size + 1) / 100.0);
   const int radius = MIN(mrad, ceilf(rad * roi_in->scale / piece->iscale));
 
   dt_box_mean(out, roi_out->height, roi_out->width, 4, radius, BOX_ITERATIONS);
@@ -174,9 +174,9 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
 
   const float w = piece->iwidth * piece->iscale;
   const float h = piece->iheight * piece->iscale;
-  int mrad = sqrt(w * w + h * h) * 0.01f;
+  const int mrad = sqrt(w * w + h * h) * 0.01f;
 
-  int rad = mrad * (fmin(100.0f, d->size + 1) / 100.0f);
+  const int rad = mrad * (fmin(100.0f, d->size + 1) / 100.0f);
   const int radius = MIN(mrad, ceilf(rad * roi_in->scale / piece->iscale));
 
   /* sigma-radius correlation to match opencl vs. non-opencl. identified by numerical experiments but
@@ -232,8 +232,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   if(dev_m == NULL) goto error;
 
   /* overexpose image */
-  sizes[0] = ROUNDUPWD(width);
-  sizes[1] = ROUNDUPHT(height);
+  sizes[0] = ROUNDUPDWD(width, devid);
+  sizes[1] = ROUNDUPDHT(height, devid);
   sizes[2] = 1;
   dt_opencl_set_kernel_arg(devid, gd->kernel_soften_overexposed, 0, sizeof(cl_mem), (void *)&dev_in);
   dt_opencl_set_kernel_arg(devid, gd->kernel_soften_overexposed, 1, sizeof(cl_mem), (void *)&dev_tmp);
@@ -248,7 +248,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   {
     /* horizontal blur */
     sizes[0] = bwidth;
-    sizes[1] = ROUNDUPHT(height);
+    sizes[1] = ROUNDUPDHT(height, devid);
     sizes[2] = 1;
     local[0] = hblocksize;
     local[1] = 1;
@@ -267,7 +267,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
 
 
     /* vertical blur */
-    sizes[0] = ROUNDUPWD(width);
+    sizes[0] = ROUNDUPDWD(width, devid);
     sizes[1] = bheight;
     sizes[2] = 1;
     local[0] = 1;
@@ -287,8 +287,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   }
 
   /* mixing tmp and in -> out */
-  sizes[0] = ROUNDUPWD(width);
-  sizes[1] = ROUNDUPHT(height);
+  sizes[0] = ROUNDUPDWD(width, devid);
+  sizes[1] = ROUNDUPDHT(height, devid);
   sizes[2] = 1;
   dt_opencl_set_kernel_arg(devid, gd->kernel_soften_mix, 0, sizeof(cl_mem), (void *)&dev_in);
   dt_opencl_set_kernel_arg(devid, gd->kernel_soften_mix, 1, sizeof(cl_mem), (void *)&dev_tmp);
@@ -321,9 +321,9 @@ void tiling_callback(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t
 
   const float w = piece->iwidth * piece->iscale;
   const float h = piece->iheight * piece->iscale;
-  int mrad = sqrt(w * w + h * h) * 0.01f;
+  const int mrad = sqrt(w * w + h * h) * 0.01f;
 
-  int rad = mrad * (fmin(100.0f, d->size + 1) / 100.0f);
+  const int rad = mrad * (fmin(100.0f, d->size + 1) / 100.0f);
   const int radius = MIN(mrad, ceilf(rad * roi_in->scale / piece->iscale));
 
   /* sigma-radius correlation to match opencl vs. non-opencl. identified by numerical experiments but
@@ -388,38 +388,30 @@ void cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev
   piece->data = NULL;
 }
 
-void gui_update(struct dt_iop_module_t *self)
-{
-  dt_iop_soften_gui_data_t *g = (dt_iop_soften_gui_data_t *)self->gui_data;
-  dt_iop_soften_params_t *p = (dt_iop_soften_params_t *)self->params;
-  dt_bauhaus_slider_set(g->size, p->size);
-  dt_bauhaus_slider_set(g->saturation, p->saturation);
-  dt_bauhaus_slider_set(g->brightness, p->brightness);
-  dt_bauhaus_slider_set(g->amount, p->amount);
-}
-
-
 void gui_init(struct dt_iop_module_t *self)
 {
   dt_iop_soften_gui_data_t *g = IOP_GUI_ALLOC(soften);
 
   g->size = dt_bauhaus_slider_from_params(self, N_("size"));
-  dt_bauhaus_slider_set_format(g->size, "%.0f%%");
+  dt_bauhaus_slider_set_format(g->size, "%");
   gtk_widget_set_tooltip_text(g->size, _("the size of blur"));
 
   g->saturation = dt_bauhaus_slider_from_params(self, N_("saturation"));
-  dt_bauhaus_slider_set_format(g->saturation, "%.0f%%");
+  dt_bauhaus_slider_set_format(g->saturation, "%");
   gtk_widget_set_tooltip_text(g->saturation, _("the saturation of blur"));
 
   g->brightness = dt_bauhaus_slider_from_params(self, N_("brightness"));
-  dt_bauhaus_slider_set_format(g->brightness, _("%.2f EV"));
+  dt_bauhaus_slider_set_format(g->brightness, _(" EV"));
   gtk_widget_set_tooltip_text(g->brightness, _("the brightness of blur"));
 
   g->amount = dt_bauhaus_slider_from_params(self, "amount");
-  dt_bauhaus_slider_set_format(g->amount, "%.0f%%");
+  dt_bauhaus_slider_set_format(g->amount, "%");
   gtk_widget_set_tooltip_text(g->amount, _("the mix of effect"));
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

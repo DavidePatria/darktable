@@ -111,7 +111,7 @@ void dt_control_init(dt_control_t *s)
   s->actions_thumb = (dt_action_t){ DT_ACTION_TYPE_CATEGORY, "thumbtable", C_("accel", "thumbtable"), .owner = &s->actions_views };
   s->actions_libs = (dt_action_t){ DT_ACTION_TYPE_CATEGORY, "lib", C_("accel", "utility modules"), .next = &s->actions_iops };
   s->actions_iops = (dt_action_t){ DT_ACTION_TYPE_CATEGORY, "iop", C_("accel", "processing modules"), .next = &s->actions_lua, .target = &s->actions_blend };
-  s->actions_blend = (dt_action_t){ DT_ACTION_TYPE_CATEGORY, "blend", C_("accel", "blending"), .owner = &s->actions_iops };
+  s->actions_blend = (dt_action_t){ DT_ACTION_TYPE_BLEND, "blend", C_("accel", "blending"), .owner = &s->actions_iops };
   s->actions_lua = (dt_action_t){ DT_ACTION_TYPE_CATEGORY, "lua", C_("accel", "lua scripts"), .next = &s->actions_fallbacks };
   s->actions_fallbacks = (dt_action_t){ DT_ACTION_TYPE_CATEGORY, "fallbacks", C_("accel", "fallbacks") };
   s->actions = &s->actions_global;
@@ -120,7 +120,9 @@ void dt_control_init(dt_control_t *s)
   s->combo_introspection = g_hash_table_new(NULL, NULL);
   s->combo_list = g_hash_table_new(NULL, NULL);
   s->shortcuts = g_sequence_new(g_free);
+  s->enable_fallbacks = dt_conf_get_bool("accel/enable_fallbacks");
   s->mapping_widget = NULL;
+  s->confirm_mapping = TRUE;
   s->widget_definitions = g_ptr_array_new ();
   s->input_drivers = NULL;
 
@@ -129,7 +131,7 @@ void dt_control_init(dt_control_t *s)
   dt_action_define_fallback(DT_ACTION_TYPE_VALUE_FALLBACK, &dt_action_def_value);
 
   dt_action_t *ac = dt_action_define(&s->actions_global, NULL, N_("show accels window"), NULL, &dt_action_def_accels_show);
-  dt_accel_register_shortcut(ac, NULL, 0, DT_ACTION_EFFECT_HOLD, GDK_KEY_h, 0);
+  dt_shortcut_register(ac, 0, DT_ACTION_EFFECT_HOLD, GDK_KEY_h, 0);
 
   s->actions_modifiers = dt_action_define(&s->actions_global, NULL, N_("modifiers"), NULL, &dt_action_def_modifiers);
 
@@ -140,7 +142,6 @@ void dt_control_init(dt_control_t *s)
   s->gui_thread = pthread_self();
 
   // s->last_expose_time = dt_get_wtime();
-  s->key_accelerators_on = 1;
   s->log_pos = s->log_ack = 0;
   s->log_busy = 0;
   s->log_message_timeout_id = 0;
@@ -170,22 +171,6 @@ void dt_control_init(dt_control_t *s)
   s->dev_zoom_y = 0;
   s->dev_zoom = DT_ZOOM_FIT;
   s->lock_cursor_shape = FALSE;
-}
-
-void dt_control_key_accelerators_on(struct dt_control_t *s)
-{
-  if(!s->key_accelerators_on) s->key_accelerators_on = 1;
-}
-
-void dt_control_key_accelerators_off(struct dt_control_t *s)
-{
-  s->key_accelerators_on = 0;
-}
-
-
-int dt_control_is_key_accelerators_on(struct dt_control_t *s)
-{
-  return s->key_accelerators_on;
 }
 
 void dt_control_forbid_change_cursor()
@@ -552,14 +537,18 @@ void dt_control_log(const char *msg, ...)
   va_list ap;
   va_start(ap, msg);
   char *escaped_msg = g_markup_vprintf_escaped(msg, ap);
+  const int msglen = strlen(escaped_msg);
   g_strlcpy(darktable.control->log_message[darktable.control->log_pos], escaped_msg, DT_CTL_LOG_MSG_SIZE);
   g_free(escaped_msg);
   va_end(ap);
-  if(darktable.control->log_message_timeout_id) g_source_remove(darktable.control->log_message_timeout_id);
+  if(darktable.control->log_message_timeout_id)
+    g_source_remove(darktable.control->log_message_timeout_id);
   darktable.control->log_ack = darktable.control->log_pos;
   darktable.control->log_pos = (darktable.control->log_pos + 1) % DT_CTL_LOG_SIZE;
+
   darktable.control->log_message_timeout_id
-      = g_timeout_add(DT_CTL_LOG_TIMEOUT, _dt_ctl_log_message_timeout_callback, NULL);
+    = g_timeout_add(DT_CTL_LOG_TIMEOUT + 1000 * (msglen / 40),
+                    _dt_ctl_log_message_timeout_callback, NULL);
   dt_pthread_mutex_unlock(&darktable.control->log_mutex);
   // redraw center later in gui thread:
   g_idle_add(_redraw_center, 0);
@@ -806,7 +795,7 @@ int dt_control_key_pressed_override(guint key, guint state)
     }
     return 1;
   }
-  else if(key == ':' && darktable.control->key_accelerators_on)
+  else if(key == ':')
   {
     darktable.control->vimkey[0] = ':';
     darktable.control->vimkey[1] = 0;
@@ -915,6 +904,9 @@ void dt_control_set_dev_zoom(dt_dev_zoom_t value)
 }
 
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

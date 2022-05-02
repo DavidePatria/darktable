@@ -109,12 +109,15 @@ unsigned char *dt_exif_xmp_decode(const char *input, const int len, int *output_
 dt_colorspaces_color_profile_type_t dt_exif_get_color_space(const uint8_t *data, size_t size);
 
 /** look for datetime_taken in data. used for gphoto downloads */
-gboolean dt_exif_get_datetime_taken(const uint8_t *data, size_t size, time_t *datetime_taken);
+void dt_exif_get_datetime_taken(const uint8_t *data, size_t size, char *datetime_taken);
 
 #ifdef __cplusplus
 }
 #endif
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

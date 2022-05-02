@@ -156,12 +156,6 @@ static void font_size_changed_callback(GtkWidget *widget, gpointer user_data)
   reload_ui_last_theme();
 }
 
-static void use_performance_callback(GtkWidget *widget, gpointer user_data)
-{
-  dt_conf_set_bool("ui/performance", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)));
-  dt_configure_ppd_dpi(darktable.gui);
-}
-
 static void dpi_scaling_changed_callback(GtkWidget *widget, gpointer user_data)
 {
   float dpi = gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
@@ -293,7 +287,7 @@ static void init_tab_general(GtkWidget *dialog, GtkWidget *stack, dt_gui_themetw
 
   gtk_combo_box_set_active(GTK_COMBO_BOX(widget), darktable.l10n->selected);
   g_signal_connect(G_OBJECT(widget), "changed", G_CALLBACK(language_callback), 0);
-  gtk_widget_set_tooltip_text(labelev,  _("double click to reset to the system language"));
+  gtk_widget_set_tooltip_text(labelev,  _("double-click to reset to the system language"));
   gtk_event_box_set_visible_window(GTK_EVENT_BOX(labelev), FALSE);
   gtk_widget_set_tooltip_text(widget, _("set the language of the user interface. the system default is marked with an * (needs a restart)"));
   gtk_grid_attach(GTK_GRID(grid), labelev, 0, line++, 1, 1);
@@ -333,19 +327,6 @@ static void init_tab_general(GtkWidget *dialog, GtkWidget *stack, dt_gui_themetw
 
   g_signal_connect(G_OBJECT(widget), "changed", G_CALLBACK(theme_callback), 0);
   gtk_widget_set_tooltip_text(widget, _("set the theme for the user interface"));
-
-  GtkWidget *useperfmode = gtk_check_button_new();
-  label = gtk_label_new(_("prefer performance over quality"));
-  gtk_widget_set_halign(label, GTK_ALIGN_START);
-  labelev = gtk_event_box_new();
-  gtk_widget_add_events(labelev, GDK_BUTTON_PRESS_MASK);
-  gtk_container_add(GTK_CONTAINER(labelev), label);
-  gtk_grid_attach(GTK_GRID(grid), labelev, 0, line++, 1, 1);
-  gtk_grid_attach_next_to(GTK_GRID(grid), useperfmode, labelev, GTK_POS_RIGHT, 1, 1);
-  gtk_widget_set_tooltip_text(useperfmode,
-                              _("if switched on, thumbnails and previews are rendered at lower quality but 4 times faster"));
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(useperfmode), dt_conf_get_bool("ui/performance"));
-  g_signal_connect(G_OBJECT(useperfmode), "toggled", G_CALLBACK(use_performance_callback), 0);
 
   //Font size check and spin buttons
   GtkWidget *usesysfont = gtk_check_button_new();
@@ -417,11 +398,12 @@ static void init_tab_general(GtkWidget *dialog, GtkWidget *stack, dt_gui_themetw
   //scrollable textarea with save button to allow user to directly modify user.css file
   GtkWidget *usercssbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_box_pack_start(GTK_BOX(container), usercssbox, TRUE, TRUE, 0);
-  gtk_widget_set_name(usercssbox, "usercss_box");
+  gtk_widget_set_name(usercssbox, "usercss-box");
 
   GtkTextBuffer *buffer = gtk_text_buffer_new(NULL);
   tw->css_text_view= gtk_text_view_new_with_buffer(buffer);
   gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(tw->css_text_view), GTK_WRAP_WORD);
+  dt_gui_add_class(tw->css_text_view, "dt_monospace");
   gtk_widget_set_hexpand(tw->css_text_view, TRUE);
   gtk_widget_set_halign(tw->css_text_view, GTK_ALIGN_FILL);
 
@@ -515,16 +497,16 @@ void dt_gui_preferences_show()
   dt_osx_disallow_fullscreen(_preferences_dialog);
 #endif
   gtk_window_set_position(GTK_WINDOW(_preferences_dialog), GTK_WIN_POS_CENTER_ON_PARENT);
-  gtk_widget_set_name(_preferences_dialog, "preferences_notebook");
+  gtk_widget_set_name(_preferences_dialog, "preferences-notebook");
 
   //grab the content area of the dialog
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(_preferences_dialog));
-  gtk_widget_set_name(content, "preferences_content");
+  gtk_widget_set_name(content, "preferences-content");
   gtk_container_set_border_width(GTK_CONTAINER(content), 0);
 
   //place a box in the content area
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_widget_set_name(box, "preferences_box");
+  gtk_widget_set_name(box, "preferences-box");
   gtk_container_set_border_width(GTK_CONTAINER(box), 0);
   gtk_box_pack_start(GTK_BOX(content), box, TRUE, TRUE, 0);
 
@@ -553,7 +535,7 @@ void dt_gui_preferences_show()
 
   //open in the appropriate tab if currently in darkroom or lighttable view
   const gchar *current_view = darktable.view_manager->current_view->name(darktable.view_manager->current_view);
-  if(strcmp(current_view, "darkroom") == 0 || strcmp(current_view, "lighttable") == 0)
+  if(strcmp(current_view, _("darkroom")) == 0 || strcmp(current_view, _("lighttable")) == 0)
   {
     gtk_stack_set_visible_child(GTK_STACK(stack), gtk_stack_get_child_by_name(GTK_STACK(stack), current_view));
   }
@@ -616,13 +598,14 @@ static void tree_insert_presets(GtkTreeStore *tree_model)
                                                      DT_PIXEL_APPLY_DPI(ICON_SIZE), DT_PIXEL_APPLY_DPI(ICON_SIZE),
                                                      cairo_image_surface_get_stride(check_cst),
                                                      cairo_destroy_from_pixbuf, check_cr);
-
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "SELECT rowid, name, operation, autoapply, model, maker, lens, iso_min, "
                               "iso_max, exposure_min, exposure_max, aperture_min, aperture_max, "
                               "focal_length_min, focal_length_max, writeprotect FROM data.presets ORDER BY "
                               "operation, name",
                               -1, &stmt, NULL);
+  // clang-format on
   while(sqlite3_step(stmt) == SQLITE_ROW)
   {
     const gint rowid = sqlite3_column_int(stmt, 0);
@@ -1060,7 +1043,7 @@ static void export_preset(GtkButton *button, gpointer data)
     sqlite3_stmt *stmt;
 
     // we have n+1 selects for saving presets, using single transaction for whole process saves us microlocks
-    DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "BEGIN TRANSACTION", NULL, NULL, NULL);
+    dt_database_start_transaction(darktable.db);
 
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "SELECT rowid, name, operation FROM data.presets WHERE writeprotect = 0",
@@ -1080,7 +1063,7 @@ static void export_preset(GtkButton *button, gpointer data)
 
     sqlite3_finalize(stmt);
 
-    DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "END TRANSACTION", NULL, NULL, NULL);
+    dt_database_release_transaction(darktable.db);
 
     dt_conf_set_folder_from_file_chooser("ui_last/export_path", GTK_FILE_CHOOSER(filechooser));
 
@@ -1397,6 +1380,9 @@ GtkWidget *dt_gui_preferences_string(GtkGrid *grid, const char *key, const guint
   return w;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

@@ -688,7 +688,7 @@ static GSList *_group_setup_mouse_actions(const struct dt_masks_form_t *const fo
     dt_masks_form_t *sel = dt_masks_get_from_id(darktable.develop, fpt->formid);
     if (!sel || (sel->type & ~seen_types) == 0)
       continue;
-    if (sel && sel->functions && sel->functions->setup_mouse_actions)
+    if (sel->functions && sel->functions->setup_mouse_actions)
     {
       GSList *new_actions = sel->functions->setup_mouse_actions(sel);
       lm = g_slist_concat(lm, new_actions);
@@ -738,6 +738,9 @@ const dt_masks_functions_t dt_masks_functions_group = {
 };
 
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

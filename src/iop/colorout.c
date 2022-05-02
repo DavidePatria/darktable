@@ -85,7 +85,7 @@ const char *name()
 }
 
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("convert pipeline reference RGB to any display RGB\n"
                                         "using color profiles to remap RGB values"),
@@ -108,28 +108,28 @@ int flags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_LAB;
 }
 
 int input_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe,
                      dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_LAB;
 }
 
 int output_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe,
                       dt_dev_pixelpipe_iop_t *piece)
 {
-  int cst = iop_cs_rgb;
+  int cst = IOP_CS_RGB;
   if(piece)
   {
     const dt_iop_colorout_data_t *const d = (dt_iop_colorout_data_t *)piece->data;
-    if(d->type == DT_COLORSPACE_LAB) cst = iop_cs_Lab;
+    if(d->type == DT_COLORSPACE_LAB) cst = IOP_CS_LAB;
   }
   else
   {
     dt_iop_colorout_params_t *p = (dt_iop_colorout_params_t *)self->params;
-    if(p->type == DT_COLORSPACE_LAB) cst = iop_cs_Lab;
+    if(p->type == DT_COLORSPACE_LAB) cst = IOP_CS_LAB;
   }
   return cst;
 }
@@ -301,7 +301,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     return TRUE;
   }
 
-  size_t sizes[] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+  size_t sizes[] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
 
   float cmatrix[9];
   pack_3xSSE_to_3x3(d->cmatrix, cmatrix);
@@ -912,6 +912,9 @@ void gui_cleanup(struct dt_iop_module_t *self)
   IOP_GUI_FREE;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

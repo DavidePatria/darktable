@@ -39,7 +39,7 @@ gboolean dt_iop_alloc_image_buffers(struct dt_iop_module_t *const module,
     if (size & DT_IMGSZ_PERTHREAD)
       (void)va_arg(args,size_t*);    // skip the extra pointer for per-thread allocations
     if (size == 0 || !bufptr)        // end of arg list?
-      break; 
+      break;
     *bufptr = NULL;
   }
   va_end(args);
@@ -459,6 +459,9 @@ void dt_iop_image_copy_configure()
     parallel_imgop_maxthreads = threads;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

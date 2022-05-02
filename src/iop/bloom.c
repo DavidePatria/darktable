@@ -75,7 +75,7 @@ const char *name()
   return _("bloom");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("apply Orton effect for a dreamy aetherical look"),
                                       _("creative"),
@@ -97,7 +97,7 @@ int default_group()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_LAB;
 }
 
 void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
@@ -239,8 +239,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   }
 
   /* gather light by threshold */
-  sizes[0] = ROUNDUPWD(width);
-  sizes[1] = ROUNDUPHT(height);
+  sizes[0] = ROUNDUPDWD(width, devid);
+  sizes[1] = ROUNDUPDHT(height, devid);
   sizes[2] = 1;
   dev_tmp1 = dev_tmp[bucket_next(&state, NUM_BUCKETS)];
   dt_opencl_set_kernel_arg(devid, gd->kernel_bloom_threshold, 0, sizeof(cl_mem), (void *)&dev_in);
@@ -257,7 +257,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     {
       /* horizontal blur */
       sizes[0] = bwidth;
-      sizes[1] = ROUNDUPHT(height);
+      sizes[1] = ROUNDUPDHT(height, devid);
       sizes[2] = 1;
       local[0] = hblocksize;
       local[1] = 1;
@@ -276,7 +276,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
 
 
       /* vertical blur */
-      sizes[0] = ROUNDUPWD(width);
+      sizes[0] = ROUNDUPDWD(width, devid);
       sizes[1] = bheight;
       sizes[2] = 1;
       local[0] = 1;
@@ -296,8 +296,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     }
 
   /* mixing out and in -> out */
-  sizes[0] = ROUNDUPWD(width);
-  sizes[1] = ROUNDUPHT(height);
+  sizes[0] = ROUNDUPDWD(width, devid);
+  sizes[1] = ROUNDUPDHT(height, devid);
   sizes[2] = 1;
   dt_opencl_set_kernel_arg(devid, gd->kernel_bloom_mix, 0, sizeof(cl_mem), (void *)&dev_in);
   dt_opencl_set_kernel_arg(devid, gd->kernel_bloom_mix, 1, sizeof(cl_mem), (void *)&dev_tmp1);
@@ -383,32 +383,26 @@ void cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev
   piece->data = NULL;
 }
 
-void gui_update(struct dt_iop_module_t *self)
-{
-  const dt_iop_bloom_params_t *p = (dt_iop_bloom_params_t *)self->params;
-  dt_iop_bloom_gui_data_t *g = (dt_iop_bloom_gui_data_t *)self->gui_data;
-  dt_bauhaus_slider_set(g->size, p->size);
-  dt_bauhaus_slider_set(g->threshold, p->threshold);
-  dt_bauhaus_slider_set(g->strength, p->strength);
-}
-
 void gui_init(struct dt_iop_module_t *self)
 {
   dt_iop_bloom_gui_data_t *g = IOP_GUI_ALLOC(bloom);
 
   g->size = dt_bauhaus_slider_from_params(self, N_("size"));
-  dt_bauhaus_slider_set_format(g->size, "%.0f%%");
+  dt_bauhaus_slider_set_format(g->size, "%");
   gtk_widget_set_tooltip_text(g->size, _("the size of bloom"));
 
   g->threshold = dt_bauhaus_slider_from_params(self, N_("threshold"));
-  dt_bauhaus_slider_set_format(g->threshold, "%.0f%%");
+  dt_bauhaus_slider_set_format(g->threshold, "%");
   gtk_widget_set_tooltip_text(g->threshold, _("the threshold of light"));
 
   g->strength = dt_bauhaus_slider_from_params(self, N_("strength"));
-  dt_bauhaus_slider_set_format(g->strength, "%.0f%%");
+  dt_bauhaus_slider_set_format(g->strength, "%");
   gtk_widget_set_tooltip_text(g->strength, _("the strength of bloom"));
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

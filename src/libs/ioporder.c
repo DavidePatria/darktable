@@ -24,6 +24,7 @@
 #include "libs/lib.h"
 #include <gtk/gtk.h>
 #include <stdlib.h>
+#include <dtgtk/expander.h>
 
 DT_MODULE(1)
 
@@ -59,6 +60,19 @@ void update(dt_lib_module_t *self)
 {
   dt_lib_ioporder_t *d = (dt_lib_ioporder_t *)self->data;
 
+  if(!d->widget)
+  {
+    if(!self->expander) return;
+
+    d->widget = gtk_label_new("");
+    g_signal_connect(G_OBJECT(d->widget), "destroy", G_CALLBACK(gtk_widget_destroyed), &d->widget);
+    gtk_widget_show(d->widget);
+    gtk_box_pack_start(GTK_BOX(dtgtk_expander_get_header(DTGTK_EXPANDER(self->expander))), d->widget, TRUE, TRUE, 0);
+
+    gtk_widget_destroy(self->arrow);
+    self->arrow = NULL;
+  }
+
   const dt_iop_order_t kind = dt_ioppr_get_iop_order_list_kind(darktable.develop->iop_order_list);
 
   if(kind == DT_IOP_ORDER_CUSTOM)
@@ -69,11 +83,13 @@ void update(dt_lib_module_t *self)
 
     sqlite3_stmt *stmt;
 
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "SELECT op_params, name"
                                 " FROM data.presets"
                                 " WHERE operation='ioporder'"
                                 " ORDER BY writeprotect DESC", -1, &stmt, NULL);
+    // clang-format on
 
     while(sqlite3_step(stmt) == SQLITE_ROW)
     {
@@ -137,14 +153,9 @@ void gui_init(dt_lib_module_t *self)
   self->data = (void *)d;
   self->widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
-  GtkWidget *label = gtk_label_new(_("current order"));
-
-  d->widget = gtk_label_new("");
+  d->widget = NULL; // initialise in first update when header has been set up
   d->current_mode = -1;
   d->last_custom_iop_order = NULL;
-
-  gtk_box_pack_start(GTK_BOX(self->widget), label, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), d->widget, TRUE, TRUE, 0);
 
   DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_DEVELOP_IMAGE_CHANGED,
                             G_CALLBACK(_image_loaded_callback), self);
@@ -156,6 +167,9 @@ void gui_init(dt_lib_module_t *self)
 
 void gui_cleanup(dt_lib_module_t *self)
 {
+  dt_lib_ioporder_t *d = (dt_lib_ioporder_t *)self->data;
+
+  if(d->widget) gtk_widget_destroy(d->widget);
   free(self->data);
   self->data = NULL;
 }
@@ -177,7 +191,8 @@ void gui_reset (dt_lib_module_t *self)
     dt_dev_pixelpipe_rebuild(darktable.develop);
 
     d->current_mode = DT_IOP_ORDER_V30;
-    gtk_label_set_text(GTK_LABEL(d->widget), _("v3.0"));
+    if(d->widget)
+      gtk_label_set_text(GTK_LABEL(d->widget), _("v3.0"));
     g_list_free_full(iop_order_list, free);
   }
 }
@@ -244,6 +259,9 @@ gboolean preset_autoapply(dt_lib_module_t *self)
   return TRUE;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

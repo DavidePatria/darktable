@@ -25,7 +25,9 @@
 #define DT_RESTRICT restrict
 #endif
 
-/* Helper to force heap vectors to be aligned on 64 bits blocks to enable AVX2 */
+// Helper to force heap vectors to be aligned on 64 byte blocks to enable AVX2
+// If this is applied to a struct member and the struct is allocated on the heap, then it must be allocated
+// on a 64 byte boundary to avoid crashes or undefined behavior because of unaligned memory access.
 #define DT_ALIGNED_ARRAY __attribute__((aligned(64)))
 #define DT_ALIGNED_PIXEL __attribute__((aligned(16)))
 
@@ -166,6 +168,9 @@ static inline void dt_colormatrix_mul(dt_colormatrix_t dst, const dt_colormatrix
   }
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

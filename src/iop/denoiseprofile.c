@@ -713,10 +713,10 @@ const char *name()
   return _("denoise (profiled)");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self,
-                                _("denoise using noise statistics profiled on sensors."),
+                                _("denoise using noise statistics profiled on sensors"),
                                 _("corrective"),
                                 _("linear, RGB, scene-referred"),
                                 _("linear, RGB"),
@@ -735,7 +735,7 @@ int flags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_rgb;
+  return IOP_CS_RGB;
 }
 
 typedef union floatint_t
@@ -1024,6 +1024,7 @@ static inline void precondition_Y0U0V0(const float *const in, float *const buf, 
       }
       buf[j+c] = sum;
     }
+    buf[j+3] = 0;
   }
 }
 
@@ -1334,7 +1335,7 @@ static void process_wavelets(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_
                              { 0.0f, 0.0f, 0.0f } };
   set_up_conversion_matrices(toY0U0V0, toRGB, wb);
 
-  // more stength in Y0U0V0 in order to get a similar smoothing as in other modes
+  // more strength in Y0U0V0 in order to get a similar smoothing as in other modes
   // otherwise, result was much less denoised in Y0U0V0 mode.
   const float compensate_strength = (d->wavelet_color_mode == MODE_RGB) ? 1.0f : 2.5f;
   // update the coeffs with strength and scale
@@ -1803,7 +1804,7 @@ static int process_nlmeans_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop
     return FALSE;
   }
 
-  const size_t sizes[] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+  const size_t sizes[] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
   const float sigma2[4] = { (bb[0] / aa[0]) * (bb[0] / aa[0]), (bb[1] / aa[1]) * (bb[1] / aa[1]),
                             (bb[2] / aa[2]) * (bb[2] / aa[2]), 0.0f };
 
@@ -1954,7 +1955,7 @@ static int process_nlmeans_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop
     vblocksize = 1;
 
 
-  const size_t sizes[] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+  const size_t sizes[] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
   size_t sizesl[3];
   size_t local[3];
 
@@ -2016,7 +2017,7 @@ static int process_nlmeans_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop
       if(err != CL_SUCCESS) goto error;
 
       sizesl[0] = bwidth;
-      sizesl[1] = ROUNDUPHT(height);
+      sizesl[1] = ROUNDUPDHT(height, devid);
       sizesl[2] = 1;
       local[0] = hblocksize;
       local[1] = 1;
@@ -2033,7 +2034,7 @@ static int process_nlmeans_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop
       err = dt_opencl_enqueue_kernel_2d_with_local(devid, gd->kernel_denoiseprofile_horiz, sizesl, local);
       if(err != CL_SUCCESS) goto error;
 
-      sizesl[0] = ROUNDUPWD(width);
+      sizesl[0] = ROUNDUPDWD(width, devid);
       sizesl[1] = bheight;
       sizesl[2] = 1;
       local[0] = 1;
@@ -2065,11 +2066,10 @@ static int process_nlmeans_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop
       err = dt_opencl_enqueue_kernel_2d(devid, gd->kernel_denoiseprofile_accu, sizes);
       if(err != CL_SUCCESS) goto error;
 
-      if(!darktable.opencl->async_pixelpipe || (piece->pipe->type & DT_DEV_PIXELPIPE_EXPORT) == DT_DEV_PIXELPIPE_EXPORT)
-        dt_opencl_finish(devid);
+      dt_opencl_finish_sync_pipe(devid, piece->pipe->type);
 
       // indirectly give gpu some air to breathe (and to do display related stuff)
-      dt_iop_nap(darktable.opencl->micro_nap);
+      dt_iop_nap(dt_opencl_micro_nap(devid));
     }
   }
 
@@ -2246,7 +2246,7 @@ static int process_wavelets_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_io
                                  { 0.0f, 0.0f, 0.0f } };
   set_up_conversion_matrices(toY0U0V0_tmp, toRGB_tmp, wb);
 
-  // more stength in Y0U0V0 in order to get a similar smoothing as in other modes
+  // more strength in Y0U0V0 in order to get a similar smoothing as in other modes
   // otherwise, result was much less denoised in Y0U0V0 mode.
   const float compensate_strength = (d->wavelet_color_mode == MODE_RGB) ? 1.0f : 2.5f;
 
@@ -2278,7 +2278,7 @@ static int process_wavelets_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_io
     }
   }
 
-  size_t sizes[] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+  size_t sizes[] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
 
   if(!d->use_new_vst)
   {
@@ -2356,7 +2356,7 @@ static int process_wavelets_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_io
     if(err != CL_SUCCESS) goto error;
 
     // indirectly give gpu some air to breathe (and to do display related stuff)
-    dt_iop_nap(darktable.opencl->micro_nap);
+    dt_iop_nap(dt_opencl_micro_nap(devid));
 
     // swap buffers
     cl_mem dev_buf3 = dev_buf2;
@@ -2506,7 +2506,7 @@ static int process_wavelets_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_io
     if(err != CL_SUCCESS) goto error;
 
     // indirectly give gpu some air to breathe (and to do display related stuff)
-    dt_iop_nap(darktable.opencl->micro_nap);
+    dt_iop_nap(dt_opencl_micro_nap(devid));
 
     // swap buffers
     cl_mem dev_buf3 = dev_buf2;
@@ -2578,9 +2578,7 @@ static int process_wavelets_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_io
     }
   }
 
-  if(!darktable.opencl->async_pixelpipe || (piece->pipe->type & DT_DEV_PIXELPIPE_EXPORT) == DT_DEV_PIXELPIPE_EXPORT)
-    dt_opencl_finish(devid);
-
+  dt_opencl_finish_sync_pipe(devid, piece->pipe->type);
 
   dt_opencl_release_mem_object(dev_r);
   dt_opencl_release_mem_object(dev_m);
@@ -3016,8 +3014,8 @@ void gui_changed(dt_iop_module_t *self, GtkWidget *w, void *previous)
     {
       gtk_widget_set_visible(g->radius, TRUE);
       gtk_widget_set_visible(g->scattering, TRUE);
-      dt_bauhaus_slider_set_soft(g->radius, infer_radius_from_profile(a * gain));
-      dt_bauhaus_slider_set_soft(g->scattering, infer_scattering_from_profile(a * gain));
+      dt_bauhaus_slider_set(g->radius, infer_radius_from_profile(a * gain));
+      dt_bauhaus_slider_set(g->scattering, infer_scattering_from_profile(a * gain));
       gtk_widget_set_visible(g->radius, FALSE);
       gtk_widget_set_visible(g->scattering, FALSE);
     }
@@ -3026,8 +3024,8 @@ void gui_changed(dt_iop_module_t *self, GtkWidget *w, void *previous)
       // we are in wavelets mode.
       // we need to show the box_nlm, setting the sliders to visible is not enough
       gtk_widget_show_all(g->box_nlm);
-      dt_bauhaus_slider_set_soft(g->radius, infer_radius_from_profile(a * gain));
-      dt_bauhaus_slider_set_soft(g->scattering, infer_scattering_from_profile(a * gain));
+      dt_bauhaus_slider_set(g->radius, infer_radius_from_profile(a * gain));
+      dt_bauhaus_slider_set(g->scattering, infer_scattering_from_profile(a * gain));
       gtk_widget_hide(g->box_nlm);
     }
     gtk_widget_set_visible(g->shadows, TRUE);
@@ -3053,14 +3051,6 @@ void gui_update(dt_iop_module_t *self)
   dt_iop_denoiseprofile_gui_data_t *g = (dt_iop_denoiseprofile_gui_data_t *)self->gui_data;
   dt_iop_denoiseprofile_params_t *p = (dt_iop_denoiseprofile_params_t *)self->params;
 
-  dt_bauhaus_slider_set_soft(g->radius, p->radius);
-  dt_bauhaus_slider_set_soft(g->nbhood, p->nbhood);
-  dt_bauhaus_slider_set_soft(g->strength, p->strength);
-  dt_bauhaus_slider_set_soft(g->overshooting, p->overshooting);
-  dt_bauhaus_slider_set_soft(g->shadows, p->shadows);
-  dt_bauhaus_slider_set_soft(g->bias, p->bias);
-  dt_bauhaus_slider_set_soft(g->scattering, p->scattering);
-  dt_bauhaus_slider_set_soft(g->central_pixel_weight, p->central_pixel_weight);
   dt_bauhaus_combobox_set(g->profile, -1);
   unsigned combobox_index = 0;
   switch (p->mode)
@@ -3112,13 +3102,12 @@ void gui_update(dt_iop_module_t *self)
   if((p->mode == MODE_NLMEANS_AUTO) || (p->mode == MODE_WAVELETS_AUTO))
   {
     const float gain = p->overshooting;
-    dt_bauhaus_slider_set_soft(g->radius, infer_radius_from_profile(a * gain));
-    dt_bauhaus_slider_set_soft(g->scattering, infer_scattering_from_profile(a * gain));
+    dt_bauhaus_slider_set(g->radius, infer_radius_from_profile(a * gain));
+    dt_bauhaus_slider_set(g->scattering, infer_scattering_from_profile(a * gain));
     dt_bauhaus_slider_set(g->shadows, infer_shadows_from_profile(a * gain));
     dt_bauhaus_slider_set(g->bias, infer_bias_from_profile(a * gain));
   }
   dt_bauhaus_combobox_set(g->mode, combobox_index);
-  dt_bauhaus_combobox_set(g->wavelet_color_mode, p->wavelet_color_mode);
   if(p->a[0] == -1.0)
   {
     dt_bauhaus_combobox_set(g->profile, 0);
@@ -3575,17 +3564,13 @@ void gui_init(dt_iop_module_t *self)
 
   g->radius = dt_bauhaus_slider_from_params(self, "radius");
   dt_bauhaus_slider_set_soft_range(g->radius, 0.0, 8.0);
-  dt_bauhaus_slider_set_step(g->radius, 1.0);
   dt_bauhaus_slider_set_digits(g->radius, 0);
   g->nbhood = dt_bauhaus_slider_from_params(self, "nbhood");
-  dt_bauhaus_slider_set_step(g->nbhood, 1.0);
   dt_bauhaus_slider_set_digits(g->nbhood, 0);
   g->scattering = dt_bauhaus_slider_from_params(self, "scattering");
   dt_bauhaus_slider_set_soft_max(g->scattering, 1.0f);
-  dt_bauhaus_slider_set_step(g->scattering, 0.01f);
   g->central_pixel_weight = dt_bauhaus_slider_from_params(self, "central_pixel_weight");
   dt_bauhaus_slider_set_soft_max(g->central_pixel_weight, 1.0f);
-  dt_bauhaus_slider_set_step(g->central_pixel_weight, 0.01f);
 
   g->box_wavelets = self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, DT_BAUHAUS_SPACE);
 
@@ -3692,13 +3677,10 @@ void gui_init(dt_iop_module_t *self)
 
   g->overshooting = dt_bauhaus_slider_from_params(self, "overshooting");
   dt_bauhaus_slider_set_soft_max(g->overshooting, 4.0f);
-  dt_bauhaus_slider_set_step(g->overshooting, 0.05f);
   g->strength = dt_bauhaus_slider_from_params(self, N_("strength"));
   dt_bauhaus_slider_set_soft_max(g->strength, 4.0f);
   dt_bauhaus_slider_set_digits(g->strength, 3);
-  dt_bauhaus_slider_set_step(g->strength, 0.05f);
   g->shadows = dt_bauhaus_slider_from_params(self, "shadows");
-  dt_bauhaus_slider_set_step(g->shadows, 0.05f);
   g->bias = dt_bauhaus_slider_from_params(self, "bias");
   dt_bauhaus_slider_set_soft_range(g->bias, -10.0f, 10.0f);
 
@@ -3772,6 +3754,8 @@ void gui_cleanup(dt_iop_module_t *self)
   IOP_GUI_FREE;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on

@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2010-2021 darktable developers.
+    Copyright (C) 2010-2022 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -85,11 +85,13 @@ void dt_history_delete_on_image_ext(int32_t imgid, gboolean undo)
   sqlite3_step(stmt);
   sqlite3_finalize(stmt);
 
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "UPDATE main.images"
                               " SET history_end = 0, aspect_ratio = 0.0"
                               " WHERE id = ?1",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   sqlite3_step(stmt);
   sqlite3_finalize(stmt);
@@ -631,6 +633,7 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
     if(!skip_modules)
       skip_modules = g_strdup("'@'");
 
+    // clang-format off
     gchar *query = g_strdup_printf
       ("INSERT INTO main.history "
        "            (imgid,num,module,operation,op_params,enabled,blendop_params, "
@@ -641,6 +644,7 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
        " WHERE imgid=?2"
        "       AND operation NOT IN (%s)"
        " ORDER BY num", skip_modules);
+    // clang-format on
 
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), query, -1, &stmt, NULL);
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, dest_imgid);
@@ -650,6 +654,7 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
 
     g_free(query);
 
+    // clang-format off
     query = g_strdup_printf
       ("INSERT INTO main.masks_history "
        "           (imgid, num, formid, form, name, version, points, points_count, source)"
@@ -657,6 +662,7 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
        "  FROM main.masks_history"
        "  WHERE imgid = ?2"
        "    AND num NOT IN (SELECT num FROM history WHERE imgid=?2 AND OPERATION IN (%s))", skip_modules);
+    // clang-format on
 
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), query, -1, &stmt, NULL);
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, dest_imgid);
@@ -678,10 +684,12 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
     }
     sqlite3_finalize(stmt);
 
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "UPDATE main.images SET history_end = ?2"
                                 " WHERE id = ?1",
                                 -1, &stmt, NULL);
+    // clang-format on
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, dest_imgid);
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, history_end);
     sqlite3_step(stmt);
@@ -689,12 +697,14 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
 
     // copy the module order
 
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "INSERT OR REPLACE INTO main.module_order (imgid, iop_list, version)"
                                 " SELECT ?2, iop_list, version"
                                 "   FROM main.module_order"
                                 "   WHERE imgid = ?1",
                                 -1, &stmt, NULL);
+    // clang-format on
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, dest_imgid);
     sqlite3_step(stmt);
@@ -711,6 +721,7 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
 
     // and finally copy the history hash, except mipmap hash
 
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "INSERT INTO main.history_hash"
                                 "    (imgid, basic_hash, auto_hash, current_hash)"
@@ -718,6 +729,7 @@ static int _history_copy_and_paste_on_image_overwrite(const int32_t imgid, const
                                 "   FROM main.history_hash "
                                 "   WHERE imgid = ?1",
                                 -1, &stmt, NULL);
+    // clang-format on
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, dest_imgid);
     sqlite3_step(stmt);
@@ -794,7 +806,7 @@ int dt_history_copy_and_paste_on_image(const int32_t imgid, const int32_t dest_i
   dt_image_update_final_size(imgid);
 
   /* update the aspect ratio. recompute only if really needed for performance reasons */
-  if(darktable.collection->params.sort == DT_COLLECTION_SORT_ASPECT_RATIO)
+  if(darktable.collection->params.sorts[DT_COLLECTION_SORT_ASPECT_RATIO])
     dt_image_set_aspect_ratio(dest_imgid, FALSE);
   else
     dt_image_reset_aspect_ratio(dest_imgid, FALSE);
@@ -807,11 +819,17 @@ int dt_history_copy_and_paste_on_image(const int32_t imgid, const int32_t dest_i
   return ret_val;
 }
 
+char *dt_history_item_as_string(const char *name, gboolean enabled)
+{
+  return g_strconcat(enabled ? "●" : "○", "  ", name, NULL);
+}
+
 GList *dt_history_get_items(const int32_t imgid, gboolean enabled)
 {
   GList *result = NULL;
   sqlite3_stmt *stmt;
 
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "SELECT num, operation, enabled, multi_name"
                               " FROM main.history"
@@ -821,47 +839,36 @@ GList *dt_history_get_items(const int32_t imgid, gboolean enabled)
                               "               WHERE hst2.imgid=?1"
                               "                 AND hst2.operation=main.history.operation"
                               "               GROUP BY multi_priority)"
+                              "   AND enabled in (1, ?2)"
                               " ORDER BY num DESC",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, enabled ? 1 : 0);
+
   while(sqlite3_step(stmt) == SQLITE_ROW)
   {
     if(strcmp((const char*)sqlite3_column_text(stmt, 1), "mask_manager") == 0) continue;
 
-    const int is_active = sqlite3_column_int(stmt, 2);
+    char name[512] = { 0 };
+    dt_history_item_t *item = g_malloc(sizeof(dt_history_item_t));
+    const char *op = (char *)sqlite3_column_text(stmt, 1);
+    item->num = sqlite3_column_int(stmt, 0);
+    item->enabled = sqlite3_column_int(stmt, 2);
 
-    if(enabled == FALSE || is_active)
-    {
-      char name[512] = { 0 };
-      dt_history_item_t *item = g_malloc(sizeof(dt_history_item_t));
-      item->num = sqlite3_column_int(stmt, 0);
-      char *mname = g_strdup((gchar *)sqlite3_column_text(stmt, 3));
-      if(enabled)
-      {
-        if(strcmp(mname, "0") == 0)
-          g_snprintf(name, sizeof(name), "%s",
-                     dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)));
-        else
-          g_snprintf(name, sizeof(name), "%s %s",
-                     dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)),
-                     (char *)sqlite3_column_text(stmt, 3));
-      }
-      else
-      {
-        if(strcmp(mname, "0") == 0)
-          g_snprintf(name, sizeof(name), "%s (%s)",
-                     dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)),
-                     (is_active != 0) ? _("on") : _("off"));
-        g_snprintf(name, sizeof(name), "%s %s (%s)",
-                   dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 1)),
-                   (char *)sqlite3_column_text(stmt, 3), (is_active != 0) ? _("on") : _("off"));
-      }
-      item->name = g_strdup(name);
-      item->op = g_strdup((gchar *)sqlite3_column_text(stmt, 1));
-      result = g_list_prepend(result, item);
+    char *mname = g_strdup((gchar *)sqlite3_column_text(stmt, 3));
 
-      g_free(mname);
-    }
+    if(strcmp(mname, "0") == 0)
+      g_snprintf(name, sizeof(name), "%s", dt_iop_get_localized_name(op));
+    else
+      g_snprintf(name, sizeof(name), "%s %s",
+                 dt_iop_get_localized_name(op),
+                 (char *)sqlite3_column_text(stmt, 3));
+    item->name = g_strdup(name);
+    item->op = g_strdup(op);
+    result = g_list_prepend(result, item);
+
+    g_free(mname);
   }
   sqlite3_finalize(stmt);
   return g_list_reverse(result);   // list was built in reverse order, so un-reverse it
@@ -870,24 +877,33 @@ GList *dt_history_get_items(const int32_t imgid, gboolean enabled)
 char *dt_history_get_items_as_string(const int32_t imgid)
 {
   GList *items = NULL;
-  const char *onoff[2] = { _("off"), _("on") };
   sqlite3_stmt *stmt;
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(
       dt_database_get(darktable.db),
-      "SELECT operation, enabled, multi_name FROM main.history WHERE imgid=?1 ORDER BY num DESC", -1, &stmt, NULL);
+      "SELECT operation, enabled, multi_name"
+      " FROM main.history"
+      " WHERE imgid=?1 ORDER BY num DESC", -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
 
   // collect all the entries in the history from the db
   while(sqlite3_step(stmt) == SQLITE_ROW)
   {
-    char *name = NULL, *multi_name = NULL;
+    char *multi_name = NULL;
     const char *mn = (char *)sqlite3_column_text(stmt, 2);
+
     if(mn && *mn && g_strcmp0(mn, " ") != 0 && g_strcmp0(mn, "0") != 0)
       multi_name = g_strconcat(" ", sqlite3_column_text(stmt, 2), NULL);
-    name = g_strconcat(dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 0)),
-                       multi_name ? multi_name : "", " (",
-                       (sqlite3_column_int(stmt, 1) == 0) ? onoff[0] : onoff[1], ")", NULL);
+
+    char *iname = dt_history_item_as_string
+      (dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 0)),
+       sqlite3_column_int(stmt, 1));
+
+    char *name = g_strconcat(iname, multi_name ? multi_name : "", NULL);
     items = g_list_prepend(items, name);
+
+    g_free(iname);
     g_free(multi_name);
   }
   sqlite3_finalize(stmt);
@@ -895,18 +911,6 @@ char *dt_history_get_items_as_string(const int32_t imgid)
   char *result = dt_util_glist_to_str("\n", items);
   g_list_free_full(items, g_free);
   return result;
-}
-
-void dt_history_set_compress_problem(const int32_t imgid, const gboolean set)
-{
-  guint tagid = 0;
-  char tagname[64];
-  snprintf(tagname, sizeof(tagname), "darktable|problem|history-compress");
-  dt_tag_new(tagname, &tagid);
-  if (set)
-    dt_tag_attach(tagid, imgid, FALSE, FALSE);
-  else
-    dt_tag_detach(tagid, imgid, FALSE, FALSE);
 }
 
 static int dt_history_end_attop(const int32_t imgid)
@@ -976,12 +980,14 @@ void dt_history_compress_on_image(const int32_t imgid)
   const char *op_mask_manager = "mask_manager";
   gboolean manager_position = FALSE;
 
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "BEGIN", NULL, NULL, NULL);
+  dt_database_start_transaction(darktable.db);
 
   // We must know for sure whether there is a mask manager at slot 0 in history
   // because only if this is **not** true history nums and history_end must be increased
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
     "SELECT COUNT(*) FROM main.history WHERE imgid = ?1 AND operation = ?2 AND num = 0", -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 2, op_mask_manager, -1, SQLITE_TRANSIENT);
   if(sqlite3_step(stmt) == SQLITE_ROW)
@@ -991,6 +997,7 @@ void dt_history_compress_on_image(const int32_t imgid)
   sqlite3_finalize(stmt);
 
   // compress history, keep disabled modules as documented
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "DELETE FROM main.history"
                               " WHERE imgid = ?1 AND num NOT IN"
@@ -998,6 +1005,7 @@ void dt_history_compress_on_image(const int32_t imgid)
                               "     WHERE imgid = ?1 AND num < ?2"
                               "     GROUP BY operation, multi_priority)",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, my_history_end);
   sqlite3_step(stmt);
@@ -1012,12 +1020,14 @@ void dt_history_compress_on_image(const int32_t imgid)
   sqlite3_finalize(stmt);
 
   // compress masks history
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "DELETE FROM main.masks_history"
                               " WHERE imgid = ?1 "
                               "   AND num NOT IN (SELECT MAX(num)"
                               "                   FROM main.masks_history"
                               "                   WHERE imgid = ?1 AND num < ?2)", -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, my_history_end);
   sqlite3_step(stmt);
@@ -1057,11 +1067,13 @@ void dt_history_compress_on_image(const int32_t imgid)
     }
 
     // create a mask manager entry in history as first entry
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "INSERT INTO main.history (imgid, num, operation, op_params, module, enabled, "
                                 "                          blendop_params, blendop_version, multi_priority, multi_name) "
                                 " VALUES(?1, 0, ?2, NULL, 1, 0, NULL, 0, 0, '')",
                                 -1, &stmt, NULL);
+    // clang-format on
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
     DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 2, op_mask_manager, -1, SQLITE_TRANSIENT);
     sqlite3_step(stmt);
@@ -1070,7 +1082,7 @@ void dt_history_compress_on_image(const int32_t imgid)
   dt_unlock_image(imgid);
   dt_history_hash_write_from_history(imgid, DT_HISTORY_HASH_CURRENT);
 
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "COMMIT", NULL, NULL, NULL);
+  dt_database_release_transaction(darktable.db);
 
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_DEVELOP_MIPMAP_UPDATED, imgid);
 }
@@ -1091,33 +1103,39 @@ void dt_history_truncate_on_image(const int32_t imgid, const int32_t history_end
     return;
   }
 
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "BEGIN", NULL, NULL, NULL);
+  dt_database_start_transaction(darktable.db);
 
   // delete end of history
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "DELETE FROM main.history"
                               " WHERE imgid = ?1 "
                               "   AND num >= ?2", -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, history_end);
   sqlite3_step(stmt);
   sqlite3_finalize(stmt);
 
   // delete end of masks history
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "DELETE FROM main.masks_history"
                               " WHERE imgid = ?1 "
                               "   AND num >= ?2", -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, history_end);
   sqlite3_step(stmt);
   sqlite3_finalize(stmt);
 
   // update history end
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "UPDATE main.images"
                               " SET history_end = ?1"
                               " WHERE id = ?2 ", -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, history_end);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, imgid);
   sqlite3_step(stmt);
@@ -1125,7 +1143,7 @@ void dt_history_truncate_on_image(const int32_t imgid, const int32_t history_end
   dt_unlock_image(imgid);
   dt_history_hash_write_from_history(imgid, DT_HISTORY_HASH_CURRENT);
 
-  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "COMMIT", NULL, NULL, NULL);
+  dt_database_release_transaction(darktable.db);
 
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_DEVELOP_MIPMAP_UPDATED, imgid);
 }
@@ -1140,9 +1158,8 @@ int dt_history_compress_on_list(const GList *imgs)
     const int imgid = GPOINTER_TO_INT(l->data);
     dt_lock_image(imgid);
     const int test = dt_history_end_attop(imgid);
-    if (test == 1) // we do a compression and we know for sure history_end is at the top!
+    if(test == 1) // we do a compression and we know for sure history_end is at the top!
     {
-      dt_history_set_compress_problem(imgid, FALSE);
       dt_history_compress_on_image(imgid);
 
       // now the modules are in right order but need renumbering to remove leaks
@@ -1204,13 +1221,8 @@ int dt_history_compress_on_list(const GList *imgs)
 
       dt_image_write_sidecar_file(imgid);
     }
-    if (test == 0) // no compression as history_end is right in the middle of history
-    {
+    if(test == 0) // no compression as history_end is right in the middle of history
       uncompressed++;
-      dt_history_set_compress_problem(imgid, TRUE);
-    }
-    if (test == -1)
-      dt_history_set_compress_problem(imgid, FALSE);
 
     dt_unlock_image(imgid);
     dt_history_hash_write_from_history(imgid, DT_HISTORY_HASH_CURRENT);
@@ -1219,20 +1231,38 @@ int dt_history_compress_on_list(const GList *imgs)
   return uncompressed;
 }
 
-gboolean dt_history_check_module_exists(int32_t imgid, const char *operation)
+gboolean dt_history_check_module_exists(int32_t imgid, const char *operation, gboolean enabled)
 {
   gboolean result = FALSE;
   sqlite3_stmt *stmt;
 
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(
     dt_database_get(darktable.db),
-    "SELECT imgid FROM main.history WHERE imgid= ?1 AND operation = ?2", -1, &stmt, NULL);
+    "SELECT imgid"
+    " FROM main.history"
+    " WHERE imgid= ?1 AND operation = ?2 AND enabled in (1, ?3)",
+    -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 2, operation, -1, SQLITE_TRANSIENT);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 3, enabled);
   if (sqlite3_step(stmt) == SQLITE_ROW) result = TRUE;
   sqlite3_finalize(stmt);
 
   return result;
+}
+
+gboolean dt_history_check_module_exists_list(GList *hist, const char *operation, gboolean enabled)
+{
+  for(GList *h = hist; h; h = g_list_next(h))
+  {
+    const dt_history_item_t *item = (dt_history_item_t *)(h->data);
+
+    if(!g_strcmp0(item->op, operation) && (item->enabled || !enabled))
+      return TRUE;
+  }
+  return FALSE;
 }
 
 GList *dt_history_duplicate(GList *hist)
@@ -1325,6 +1355,7 @@ static gsize _history_hash_compute_from_db(const int32_t imgid, guint8 **hash)
   // which are enabled. this is important here as we want the hash to represent the actual
   // developement of the image.
   gboolean history_on = FALSE;
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "SELECT operation, op_params, blendop_params, enabled, MAX(num)"
                               " FROM main.history"
@@ -1332,6 +1363,7 @@ static gsize _history_hash_compute_from_db(const int32_t imgid, guint8 **hash)
                               " GROUP BY operation, multi_priority"
                               " ORDER BY num",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, history_end);
 
@@ -1359,11 +1391,13 @@ static gsize _history_hash_compute_from_db(const int32_t imgid, guint8 **hash)
   if(history_on)
   {
     // get module order
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "SELECT version, iop_list"
                                 " FROM main.module_order"
                                 " WHERE imgid = ?1",
                                 -1, &stmt, NULL);
+    // clang-format on
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
     if(sqlite3_step(stmt) == SQLITE_ROW)
     {
@@ -1426,32 +1460,40 @@ void dt_history_hash_write_from_history(const int32_t imgid, const dt_history_ha
     {
       sqlite3_stmt *stmt;
 #ifdef HAVE_SQLITE_324_OR_NEWER
+      // clang-format off
       char *query = g_strdup_printf("INSERT INTO main.history_hash"
                                     " (imgid, %s) VALUES (?1, %s)"
                                     " ON CONFLICT (imgid)"
                                     " DO UPDATE SET %s",
                                     fields, values, conflict);
+      // clang-format on
 #else
       char *query = NULL;
+      // clang-format off
       DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                   "SELECT imgid FROM main.history_hash"
                                   " WHERE imgid = ?1",
                                    -1, &stmt, NULL);
+      // clang-format on
       DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
       if(sqlite3_step(stmt) == SQLITE_ROW)
       {
         sqlite3_finalize(stmt);
+        // clang-format off
         query = g_strdup_printf("UPDATE main.history_hash"
                                 " SET %s"
                                 " WHERE imgid = ?1",
                                 conflict);
+        // clang-format on
       }
       else
       {
         sqlite3_finalize(stmt);
+        // clang-format off
         query = g_strdup_printf("INSERT INTO main.history_hash"
                                 " (imgid, %s) VALUES (?1, %s)",
                                 fields, values);
+        // clang-format on
       }
 #endif
       DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), query, -1, &stmt, NULL);
@@ -1473,11 +1515,13 @@ void dt_history_hash_write(const int32_t imgid, dt_history_hash_values_t *hash)
   if(hash->basic || hash->auto_apply || hash->current)
   {
     sqlite3_stmt *stmt;
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "INSERT OR REPLACE INTO main.history_hash"
                                 " (imgid, basic_hash, auto_hash, current_hash)"
                                 " VALUES (?1, ?2, ?3, ?4)",
                                 -1, &stmt, NULL);
+    // clang-format on
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
     DT_DEBUG_SQLITE3_BIND_BLOB(stmt, 2, hash->basic, hash->basic_len, SQLITE_TRANSIENT);
     DT_DEBUG_SQLITE3_BIND_BLOB(stmt, 3, hash->auto_apply, hash->auto_apply_len, SQLITE_TRANSIENT);
@@ -1495,11 +1539,13 @@ void dt_history_hash_read(const int32_t imgid, dt_history_hash_values_t *hash)
   hash->basic = hash->auto_apply = hash->current = NULL;
   hash->basic_len = hash->auto_apply_len = hash->current_len = 0;
   sqlite3_stmt *stmt;
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "SELECT basic_hash, auto_hash, current_hash"
                               " FROM main.history_hash"
                               " WHERE imgid = ?1",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   if(sqlite3_step(stmt) == SQLITE_ROW)
   {
@@ -1533,6 +1579,7 @@ gboolean dt_history_hash_is_mipmap_synced(const int32_t imgid)
   gboolean status = FALSE;
   if(imgid == -1) return status;
   sqlite3_stmt *stmt;
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "SELECT CASE"
                               "  WHEN mipmap_hash == current_hash THEN 1"
@@ -1540,6 +1587,7 @@ gboolean dt_history_hash_is_mipmap_synced(const int32_t imgid)
                               " FROM main.history_hash"
                               " WHERE imgid = ?1",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   if(sqlite3_step(stmt) == SQLITE_ROW)
   {
@@ -1553,11 +1601,13 @@ void dt_history_hash_set_mipmap(const int32_t imgid)
 {
   if(imgid == -1) return;
   sqlite3_stmt *stmt;
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "UPDATE main.history_hash"
                               " SET mipmap_hash = current_hash"
                               " WHERE imgid = ?1",
                               -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   sqlite3_step(stmt);
   sqlite3_finalize(stmt);
@@ -1568,6 +1618,7 @@ dt_history_hash_t dt_history_hash_get_status(const int32_t imgid)
   dt_history_hash_t status = 0;
   if(imgid == -1) return status;
   sqlite3_stmt *stmt;
+  // clang-format off
   char *query = g_strdup_printf("SELECT CASE"
                                 "  WHEN basic_hash == current_hash THEN %d"
                                 "  WHEN auto_hash == current_hash THEN %d"
@@ -1578,6 +1629,7 @@ dt_history_hash_t dt_history_hash_get_status(const int32_t imgid)
                                 " WHERE imgid = %d",
                                 DT_HISTORY_HASH_BASIC, DT_HISTORY_HASH_AUTO,
                                 DT_HISTORY_HASH_CURRENT, DT_HISTORY_HASH_BASIC, imgid);
+  // clang-format on
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               query, -1, &stmt, NULL);
   if(sqlite3_step(stmt) == SQLITE_ROW)
@@ -1742,7 +1794,7 @@ gboolean dt_history_delete_on_list(const GList *list, gboolean undo)
 
     /* update the aspect ratio if the current sorting is based on aspect ratio, otherwise the aspect ratio will be
        recalculated when the mimpap will be recreated */
-    if(darktable.collection->params.sort == DT_COLLECTION_SORT_ASPECT_RATIO)
+    if(darktable.collection->params.sorts[DT_COLLECTION_SORT_ASPECT_RATIO])
       dt_image_set_aspect_ratio(imgid, FALSE);
   }
 
@@ -1753,6 +1805,9 @@ gboolean dt_history_delete_on_list(const GList *list, gboolean undo)
 }
 
 #undef DT_IOP_ORDER_INFO
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

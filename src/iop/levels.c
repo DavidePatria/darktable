@@ -122,10 +122,10 @@ int flags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_LAB;
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("adjust black, white and mid-gray points"),
                                       _("creative"),
@@ -371,7 +371,7 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
   const float *const restrict in = (float*)ivoid;
   float *const restrict out = (float*)ovoid;
   const size_t npixels = (size_t)roi_out->width * roi_out->height;
-  
+
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
   dt_omp_firstprivate(ch, d) \
@@ -427,7 +427,7 @@ int process_cl(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_mem dev_
   dev_lut = dt_opencl_copy_host_to_device(devid, d->lut, 256, 256, sizeof(float));
   if(dev_lut == NULL) goto error;
 
-  size_t sizes[2] = { ROUNDUPWD(width), ROUNDUPHT(height) };
+  size_t sizes[2] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid) };
   dt_opencl_set_kernel_arg(devid, gd->kernel_levels, 0, sizeof(cl_mem), &dev_in);
   dt_opencl_set_kernel_arg(devid, gd->kernel_levels, 1, sizeof(cl_mem), &dev_out);
   dt_opencl_set_kernel_arg(devid, gd->kernel_levels, 2, sizeof(int), &width);
@@ -550,9 +550,6 @@ void gui_update(dt_iop_module_t *self)
   dt_iop_levels_params_t *p = (dt_iop_levels_params_t *)self->params;
 
   dt_bauhaus_combobox_set(g->mode, p->mode);
-  dt_bauhaus_slider_set(g->percentile_black, p->black);
-  dt_bauhaus_slider_set(g->percentile_grey, p->gray);
-  dt_bauhaus_slider_set(g->percentile_white, p->white);
 
   gui_changed(self, g->mode, 0);
 
@@ -665,18 +662,15 @@ void gui_init(dt_iop_module_t *self)
 
   c->percentile_black = dt_bauhaus_slider_from_params(self, N_("black"));
   gtk_widget_set_tooltip_text(c->percentile_black, _("black percentile"));
-  dt_bauhaus_slider_set_format(c->percentile_black, "%.1f%%");
-  dt_bauhaus_slider_set_step(c->percentile_black, 0.1);
+  dt_bauhaus_slider_set_format(c->percentile_black, "%");
 
   c->percentile_grey = dt_bauhaus_slider_from_params(self, N_("gray"));
   gtk_widget_set_tooltip_text(c->percentile_grey, _("gray percentile"));
-  dt_bauhaus_slider_set_format(c->percentile_grey, "%.1f%%");
-  dt_bauhaus_slider_set_step(c->percentile_grey, 0.1);
+  dt_bauhaus_slider_set_format(c->percentile_grey, "%");
 
   c->percentile_white = dt_bauhaus_slider_from_params(self, N_("white"));
   gtk_widget_set_tooltip_text(c->percentile_white, _("white percentile"));
-  dt_bauhaus_slider_set_format(c->percentile_white, "%.1f%%");
-  dt_bauhaus_slider_set_step(c->percentile_white, 0.1);
+  dt_bauhaus_slider_set_format(c->percentile_white, "%");
 
   gtk_stack_add_named(GTK_STACK(c->mode_stack), vbox_automatic, "automatic");
 
@@ -1012,6 +1006,9 @@ static void dt_iop_levels_autoadjust_callback(GtkRange *range, dt_iop_module_t *
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

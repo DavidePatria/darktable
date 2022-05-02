@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2009-2021 darktable developers.
+    Copyright (C) 2009-2022 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 #include "config.h"
 #endif
 
-#include "common/darktable.h"
+#include "common/colorspaces.h"
 #include "common/dtpthread.h"
 #include "develop/format.h"
 #include <glib.h>
@@ -154,7 +154,9 @@ typedef enum dt_image_loader_t
   LOADER_PNM      = 10,
   LOADER_AVIF     = 11,
   LOADER_IM       = 12,
-  LOADER_COUNT    = 13, // keep last
+  LOADER_HEIF     = 13,
+  LOADER_LIBRAW   = 14,
+  LOADER_COUNT    = 15, // keep last
 } dt_image_loader_t;
 
 static const struct
@@ -175,7 +177,9 @@ static const struct
   { N_("rawspeed"),        'r'},
   { N_("netpnm"),          'n'},
   { N_("avif"),            'a'},
-  { N_("ImageMagick"),     'i'}
+  { N_("ImageMagick"),     'i'},
+  { N_("heif"),            'h'},
+  { N_("libraw"),          'l'}
 };
 
 typedef struct dt_image_geoloc_t
@@ -184,8 +188,6 @@ typedef struct dt_image_geoloc_t
 } dt_image_geoloc_t;
 
 struct dt_cache_entry_t;
-
-#define DT_DATETIME_LENGTH 20
 
 // TODO: add color labels and such as cacheable
 // __attribute__ ((aligned (128)))
@@ -204,13 +206,14 @@ typedef struct dt_image_t
   char exif_maker[64];
   char exif_model[64];
   char exif_lens[128];
-  char exif_datetime_taken[DT_DATETIME_LENGTH];
+  GTimeSpan exif_datetime_taken;
 
   char camera_maker[64];
   char camera_model[64];
   char camera_alias[64];
   char camera_makermodel[128];
   char camera_legacy_makermodel[128];
+  gboolean camera_missing_sample;
 
   char filename[DT_MAX_FILENAME_LEN];
 
@@ -225,7 +228,7 @@ typedef struct dt_image_t
   int32_t num, flags, film_id, id, group_id, version;
 
   //timestamps
-  time_t import_timestamp, change_timestamp, export_timestamp, print_timestamp;
+  GTimeSpan import_timestamp, change_timestamp, export_timestamp, print_timestamp;
 
   dt_image_loader_t loader;
 
@@ -253,6 +256,9 @@ typedef struct dt_image_t
   /* White balance coeffs from the raw */
   dt_aligned_pixel_t wb_coeffs;
 
+  /* Adobe coeffs from the raw */
+  float adobe_XYZ_to_CAM[4][3];
+
   /* DefaultUserCrop */
   dt_boundingbox_t usercrop;
   /* convenience pointer back into the image cache, so we can return dt_image_t* there directly. */
@@ -273,11 +279,11 @@ int dt_image_is_hdr(const dt_image_t *img);
 /** set the monochrome flags if monochrome is TRUE and clear it otherwise */
 void dt_image_set_monochrome_flag(const int32_t imgid, gboolean monochrome);
 /** returns non-zero if this image was taken using a monochrome camera */
-int dt_image_is_monochrome(const dt_image_t *img);
+gboolean dt_image_is_monochrome(const dt_image_t *img);
 /** returns non-zero if the image supports a color correction matrix */
-int dt_image_is_matrix_correction_supported(const dt_image_t *img);
+gboolean dt_image_is_matrix_correction_supported(const dt_image_t *img);
 /** returns non-zero if the image supports the rawprepare module */
-int dt_image_is_rawprepare_supported(const dt_image_t *img);
+gboolean dt_image_is_rawprepare_supported(const dt_image_t *img);
 /** returns the bitmask containing info about monochrome images */
 int dt_image_monochrome_flags(const dt_image_t *img);
 /** returns true if the image has been tested to be monochrome and the image wants monochrome workflow */
@@ -304,8 +310,10 @@ int dt_image_get_xmp_rating(const dt_image_t *img);
 int dt_image_get_xmp_rating_from_flags(const int flags);
 /** finds all xmp duplicates for the given image in the database. */
 GList* dt_image_find_duplicates(const char* filename);
-/** check if an image with the given filename is already imported */
-gboolean dt_images_already_imported(const gchar *filename);
+/** get image id by filename */
+int32_t dt_image_get_id_full_path(const gchar *filename);
+/** get image id by film_id and filename */
+int32_t dt_image_get_id(uint32_t film_id, const gchar *filename);
 /** imports a new image from raw/etc file and adds it to the data base and image cache. Use from threads other than lua.*/
 uint32_t dt_image_import(int32_t film_id, const char *filename, gboolean override_ignore_jpegs,
                          gboolean raise_signals);
@@ -405,7 +413,7 @@ gboolean dt_image_safe_remove(const int32_t imgid);
 /* try to sync .xmp for all local copies */
 void dt_image_local_copy_synch(void);
 // xmp functions:
-void dt_image_write_sidecar_file(const int32_t imgid);
+int dt_image_write_sidecar_file(const int32_t imgid);
 void dt_image_synch_xmp(const int selected);
 void dt_image_synch_xmps(const GList *img);
 void dt_image_synch_all_xmp(const gchar *pathname);
@@ -430,6 +438,13 @@ char *dt_image_get_text_path_from_path(const char *image_path);
 
 float dt_image_get_exposure_bias(const struct dt_image_t *image_storage);
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+/** handle message for missing camera samples reported by rawspeed */
+char *dt_image_camera_missing_sample_message(const struct dt_image_t *img, gboolean logmsg);
+void dt_image_check_camera_missing_sample(const struct dt_image_t *img);
+
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

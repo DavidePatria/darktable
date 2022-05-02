@@ -75,7 +75,7 @@ void dt_init_print_info(dt_print_info_t *pinfo)
 void dt_get_printer_info(const char *printer_name, dt_printer_info_t *pinfo)
 {
   cups_dest_t *dests;
-  int num_dests = cupsGetDests(&dests);
+  const int num_dests = cupsGetDests(&dests);
   cups_dest_t *dest = cupsGetDest(printer_name, NULL, num_dests, dests);
 
   if (dest)
@@ -268,7 +268,7 @@ GList *dt_get_papers(const dt_printer_info_t *printer)
 #endif
   {
     cups_dest_t *dests;
-    int num_dests = cupsGetDests(&dests);
+    const int num_dests = cupsGetDests(&dests);
     cups_dest_t *dest = cupsGetDest(printer_name, NULL, num_dests, dests);
 
     int cancel = 0; // important
@@ -466,8 +466,9 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
 
     gint exit_status = 0;
 
-    g_spawn_sync (NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
-                  NULL, NULL, NULL, NULL, &exit_status, NULL);
+    g_spawn_sync(NULL, argv, NULL,
+                 G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
+                 NULL, NULL, NULL, NULL, &exit_status, NULL);
 
     g_free(argv[1]);
     g_free(argv[3]);
@@ -512,7 +513,7 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
   else
   {
     cups_dest_t *dests;
-    int num_dests = cupsGetDests(&dests);
+    const int num_dests = cupsGetDests(&dests);
     cups_dest_t *dest = cupsGetDest(pinfo->printer.name, NULL, num_dests, dests);
 
     for (int j = 0; j < dest->num_options; j ++)
@@ -555,7 +556,8 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
       num_options = cupsAddOption("Borderless", "true", num_options, &options);
     }
 
-    num_options = cupsAddOption("landscape", pinfo->page.landscape ? "true" : "false", num_options, &options);
+    // as cups-filter pdftopdf will autorotate the page, there is no
+    // need to set an option in the case of landscape mode images
   }
 
   // print lp options
@@ -576,8 +578,9 @@ void dt_print_file(const int32_t imgid, const char *filename, const char *job_ti
 
 void dt_get_print_layout(const dt_print_info_t *prt,
                          const int32_t area_width, const int32_t area_height,
-                         int32_t *px, int32_t *py, int32_t *pwidth, int32_t *pheight,
-                         int32_t *ax, int32_t *ay, int32_t *awidth, int32_t *aheight)
+                         float *px, float *py, float *pwidth, float *pheight,
+                         float *ax, float *ay, float *awidth, float *aheight,
+                         gboolean *borderless)
 {
   /* this is where the layout is done for the display and for the print too. So this routine is one
      of the most critical for the print circuitry. */
@@ -611,13 +614,13 @@ void dt_get_print_layout(const dt_print_info_t *prt,
   }
 
   // the image area aspect
-  const float a_aspect = (double)area_width / (double)area_height;
+  const float a_aspect = (float)area_width / (float)area_height;
 
   // page aspect
   const float pg_aspect = pg_width / pg_height;
 
   // display page
-  int32_t p_bottom, p_right;
+  float p_bottom, p_right;
 
   if(a_aspect > pg_aspect)
   {
@@ -648,10 +651,15 @@ void dt_get_print_layout(const dt_print_info_t *prt,
 
   // display picture area, that is removing the non printable areas and user's margins
 
-  const int32_t bx = *px + ((np_left + border_left) / pg_width) * (*pwidth);
-  const int32_t by = *py + ((np_top + border_top)/ pg_height) * (*pheight);
-  const int32_t bb = p_bottom - ((np_bottom + border_bottom) / pg_height) * (*pheight);
-  const int32_t br = p_right - ((np_right + border_right) / pg_width) * (*pwidth);
+  const float bx = *px + (border_left / pg_width) * (*pwidth);
+  const float by = *py + (border_top / pg_height) * (*pheight);
+  const float bb = p_bottom - (border_bottom / pg_height) * (*pheight);
+  const float br = p_right - (border_right / pg_width) * (*pwidth);
+
+  *borderless = border_left   < np_left
+             || border_right  < np_right
+             || border_top    < np_top
+             || border_bottom < np_bottom;
 
   // now we have the printable area (ax, ay) -> (ax + awidth, ay + aheight)
 
@@ -661,6 +669,9 @@ void dt_get_print_layout(const dt_print_info_t *prt,
   *aheight = bb - by;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

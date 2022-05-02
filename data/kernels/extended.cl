@@ -854,31 +854,10 @@ colorbalancergb (read_only image2d_t in, write_only image2d_t out,
   const float chroma_factor = fmax(1.f + chroma_boost + vib, 0.f);
   Ych.y *= chroma_factor;
 
-  // Do a test conversion to Yrg
-  Yrg = Ych_to_Yrg(Ych);
+  // clip chroma at constant Y and hue
+  Ych = gamut_check_Yrg(Ych);
 
-  // Gamut-clip in Yrg at constant hue and luminance
-  // e.g. find the max chroma value that fits in gamut at the current hue
-  const float D65[4] = { 0.21962576f, 0.54487092f, 0.23550333f, 0.f };
-  float max_c = Ych.y;
-  const float cos_h = native_cos(Ych.z);
-  const float sin_h = native_sin(Ych.z);
-
-  if(Yrg.y < 0.f)
-  {
-    max_c = fmin(-D65[0] / cos_h, max_c);
-  }
-  if(Yrg.z < 0.f)
-  {
-    max_c = fmin(-D65[1] / sin_h, max_c);
-  }
-  if(Yrg.y + Yrg.z > 1.f)
-  {
-    max_c = fmin((1.f - D65[0] - D65[1]) / (cos_h + sin_h), max_c);
-  }
-
-  // Overwrite chroma with the sanitized value and go to Yrg for real
-  Ych.y = max_c;
+  // go to Yrg for real
   Yrg = Ych_to_Yrg(Ych);
 
   // Go to LMS
@@ -947,10 +926,12 @@ colorbalancergb (read_only image2d_t in, write_only image2d_t out,
 
   // Gamut mapping
   const float out_max_sat_h = lookup_gamut(gamut_lut, h);
-  float sat = (JC[0] > 0.f) ? JC[1] / JC[0] : 0.f;
-  sat = soft_clip(sat, 0.8f * out_max_sat_h, out_max_sat_h);
+  // if JC[0] == 0.f, the saturation / luminance ratio is infinite - assign the largest practical value we have
+  const float sat = (JC[0] > 0.f) ? soft_clip(JC[1] / JC[0], 0.8f * out_max_sat_h, out_max_sat_h)
+                                  : out_max_sat_h;
   const float max_C_at_sat = JC[0] * sat;
-  const float max_J_at_sat = (sat > 0.f) ? JC[1] / sat : 0.f;
+  // if sat == 0.f, the chroma is zero - assign the original luminance because there's no need to gamut map
+  const float max_J_at_sat = (sat > 0.f) ? JC[1] / sat : JC[0];
   JC[0] = (JC[0] + max_J_at_sat) / 2.f;
   JC[1] = (JC[1] + max_C_at_sat) / 2.f;
 

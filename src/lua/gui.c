@@ -82,12 +82,14 @@ static int _act_on_cb(lua_State *L)
 {
   lua_newtable(L);
   int table_index = 1;
-  for(const GList *image = dt_view_get_images_to_act_on(FALSE, TRUE, TRUE); image; image = g_list_next(image))
+  GList *l = dt_act_on_get_images(FALSE, TRUE, TRUE);
+  for(const GList *image = l; image; image = g_list_next(image))
   {
     luaA_push(L, dt_lua_image_t, &image->data);
     lua_seti(L, -2, table_index);
     table_index++;
   }
+  g_list_free(l);
   return 1;
 }
 
@@ -440,6 +442,9 @@ int dt_lua_init_gui(lua_State *L)
   return 0;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

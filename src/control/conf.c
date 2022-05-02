@@ -327,6 +327,14 @@ const char *dt_conf_get_string_const(const char *name)
   return dt_conf_get_var(name);
 }
 
+gboolean dt_conf_key_not_empty(const char *name)
+{
+  const char *val = dt_conf_get_string_const(name);
+  if(val == NULL)      return FALSE;
+  if(strlen(val) == 0) return FALSE;
+  return TRUE;
+}
+
 gboolean dt_conf_get_folder_to_file_chooser(const char *name, GtkFileChooser *chooser)
 {
   const gchar *folder = dt_conf_get_string_const(name);
@@ -429,7 +437,6 @@ void dt_conf_init(dt_conf_t *cf, const char *filename, GSList *override_entries)
   char line[LINE_SIZE + 1];
 
   FILE *f = NULL;
-  gboolean defaults = FALSE;
 
   // check for user config
   f = g_fopen(filename, "rb");
@@ -466,9 +473,6 @@ void dt_conf_init(dt_conf_t *cf, const char *filename, GSList *override_entries)
   }
   else
   {
-    // this is first run, remember we init
-    defaults = TRUE;
-
     // we initialize the conf table with default values
     GHashTableIter iter;
     gpointer key, value;
@@ -481,11 +485,6 @@ void dt_conf_init(dt_conf_t *cf, const char *filename, GSList *override_entries)
       g_hash_table_insert(darktable.conf->table, g_strdup(name), g_strdup(entry->def));
     }
   }
-
-  // for the very first time after a fresh install
-  // execute performance configuration no matter what
-  if(defaults)
-    dt_configure_performance();
 
   if(override_entries)
   {
@@ -794,6 +793,7 @@ gboolean dt_conf_is_default(const char *name)
   case DT_BOOL:
     return dt_conf_get_bool(name) == dt_confgen_get_bool(name, DT_DEFAULT);
     break;
+  case DT_PATH:
   case DT_STRING:
   case DT_ENUM:
   default:
@@ -806,6 +806,37 @@ gboolean dt_conf_is_default(const char *name)
   }
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+gchar* dt_conf_expand_default_dir(const char *dir)
+{
+  // expand special dirs
+#define CONFIG_DIR "$(config)"
+#define HOME_DIR   "$(home)"
+
+  gchar *path = NULL;
+  if(g_str_has_prefix(dir, CONFIG_DIR))
+  {
+    gchar configdir[PATH_MAX] = { 0 };
+    dt_loc_get_user_config_dir(configdir, sizeof(configdir));
+    path = g_strdup_printf("%s%s", configdir, dir + strlen(CONFIG_DIR));
+  }
+  else if(g_str_has_prefix(dir, HOME_DIR))
+  {
+    gchar *homedir = dt_loc_get_home_dir(NULL);
+    path = g_strdup_printf("%s%s", homedir, dir + strlen(HOME_DIR));
+    g_free(homedir);
+  }
+  else path = g_strdup(dir);
+
+  gchar *normalized_path = dt_util_normalize_path(path);
+  g_free(path);
+
+  return normalized_path;
+}
+
+
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

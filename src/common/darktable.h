@@ -47,7 +47,6 @@
 #include "common/dtpthread.h"
 #include "common/dttypes.h"
 #include "common/utility.h"
-#include <time.h>
 #ifdef _WIN32
 #include "win/getrusage.h"
 #else
@@ -133,6 +132,8 @@ typedef unsigned int u_int;
 # elif defined(__PPC64__)
 /* __PPC64__ is the only macro tested for in is_supported_platform.h, other macros would fail there anyway. */
 #define __DT_CLONE_TARGETS__ __attribute__((target_clones("default","cpu=power9")))
+# else
+#define __DT_CLONE_TARGETS__
 # endif
 #else
 #define __DT_CLONE_TARGETS__
@@ -155,7 +156,8 @@ typedef unsigned int u_int;
 // version of current performance configuration version
 // if you want to run an updated version of the performance configuration later
 // bump this number and make sure you have an updated logic in dt_configure_performance()
-#define DT_CURRENT_PERFORMANCE_CONFIGURE_VERSION 2
+#define DT_CURRENT_PERFORMANCE_CONFIGURE_VERSION 11
+#define DT_PERF_INFOSIZE 4096
 
 // every module has to define this:
 #ifdef _DEBUG
@@ -267,7 +269,9 @@ typedef enum dt_debug_thread_t
   DT_DEBUG_SIGNAL         = 1 << 20,
   DT_DEBUG_PARAMS         = 1 << 21,
   DT_DEBUG_DEMOSAIC       = 1 << 22,
-  DT_DEBUG_TILING         = 1 << 23,
+  DT_DEBUG_ACT_ON         = 1 << 23,
+  DT_DEBUG_TILING         = 1 << 24,
+  DT_DEBUG_VERBOSE        = 1 << 25
 } dt_debug_thread_t;
 
 typedef struct dt_codepath_t
@@ -276,6 +280,18 @@ typedef struct dt_codepath_t
   unsigned int _no_intrinsics : 1;
   unsigned int OPENMP_SIMD : 1; // always stays the last one
 } dt_codepath_t;
+
+typedef struct dt_sys_resources_t
+{
+  size_t total_memory;
+  size_t mipmap_memory;
+  int *fractions;   // fractions are calculated as res=input / 1024  * fraction
+  int *refresource; // for the debug resource modes we use fixed settings
+  int group;
+  int level;
+  int tunememory;
+  int tunepinning;
+} dt_sys_resources_t;
 
 typedef struct darktable_t
 {
@@ -330,6 +346,9 @@ typedef struct darktable_t
   GList *themes;
   int32_t unmuted_signal_dbg_acts;
   gboolean unmuted_signal_dbg[DT_SIGNAL_COUNT];
+  GTimeZone *utc_tz;
+  GDateTime *origin_gdt;
+  struct dt_sys_resources_t dtresources;
 } darktable_t;
 
 typedef struct
@@ -341,12 +360,24 @@ typedef struct
 extern darktable_t darktable;
 
 int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load_data, lua_State *L);
+void dt_get_sysresource_level();
 void dt_cleanup();
 void dt_print(dt_debug_thread_t thread, const char *msg, ...) __attribute__((format(printf, 2, 3)));
-void dt_gettime_t(char *datetime, size_t datetime_len, time_t t);
-void dt_gettime(char *datetime, size_t datetime_len);
+/* same as above but without time stamp : nts = no time stamp */
+void dt_print_nts(dt_debug_thread_t thread, const char *msg, ...) __attribute__((format(printf, 2, 3)));
+/* same as above but requires additional DT_DEBUG_VERBOSE flag to be true */
+void dt_vprint(dt_debug_thread_t thread, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 int dt_worker_threads();
+size_t dt_get_available_mem();
+size_t dt_get_singlebuffer_mem();
+
 void *dt_alloc_align(size_t alignment, size_t size);
+static inline void* dt_calloc_align(size_t alignment, size_t size)
+{
+  void *buf = dt_alloc_align(alignment, size);
+  if(buf) memset(buf, 0, size);
+  return buf;
+}
 static inline float *dt_alloc_align_float(size_t pixels)
 {
   return (float*)__builtin_assume_aligned(dt_alloc_align(64, pixels * sizeof(float)), 64);
@@ -593,8 +624,7 @@ static inline const GList *g_list_prev_wraparound(const GList *list)
 
 void dt_print_mem_usage();
 
-void dt_configure_performance();
-
+void dt_configure_runtime_performance(const int version, char *config_info);
 // helper function which loads whatever image_to_load points to: single image files or whole directories
 // it tells you if it was a single image or a directory in single_image (when it's not NULL)
 int dt_load_from_string(const gchar *image_to_load, gboolean open_image_in_dr, gboolean *single_image);
@@ -633,6 +663,9 @@ static inline void dt_unreachable_codepath_with_caller(const char *description, 
  */
 #define DT_MAX_PATH_FOR_PARAMS 4096
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

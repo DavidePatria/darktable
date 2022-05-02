@@ -125,7 +125,7 @@ int default_group()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_Lab;
+  return IOP_CS_RGB;
 }
 
 // Whenever new fields are added to (or removed from) dt_iop_..._params_t or when their meaning
@@ -201,7 +201,9 @@ void commit_params(dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pixelpipe_
 }
 
 #if 0
-/** optional, only needed if tiling is permitted by setting IOP_FLAGS_ALLOW_TILING */
+/** optional, always needed if tiling is permitted by setting IOP_FLAGS_ALLOW_TILING
+    Also define this if the module uses more memory on the OpenCl device than the in& output buffers. 
+*/
 void tiling_callback(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *piece,
                      const dt_iop_roi_t *roi_in, const dt_iop_roi_t *roi_out,
                      struct dt_develop_tiling_t *tiling)
@@ -414,7 +416,7 @@ static void extra_callback(GtkWidget *w, dt_iop_module_t *self)
   // Setting a widget value will trigger a callback that will update params.
   // If this is not desirable (because it might result in a cycle) then use
   // ++darktable.gui->reset;
-  dt_bauhaus_slider_set_soft(g->factor, p->factor + extra);
+  dt_bauhaus_slider_set(g->factor, p->factor + extra);
   // and reverse with --darktable.gui->reset;
 
   // If any params updated directly, not via a callback, then
@@ -580,7 +582,7 @@ void gui_init(dt_iop_module_t *self)
   dt_bauhaus_slider_set_step(g->factor, .1);
   dt_bauhaus_slider_set_digits(g->factor, 2);
   // Additional parameters determine how the value will be shown.
-  dt_bauhaus_slider_set_format(g->factor, "%.2f %%");
+  dt_bauhaus_slider_set_format(g->factor, "%");
   // For a percentage, use factor 100.
   dt_bauhaus_slider_set_factor(g->factor, -100.0f);
   dt_bauhaus_slider_set_offset(g->factor, 100.0f);
@@ -596,7 +598,7 @@ void gui_init(dt_iop_module_t *self)
 
   // Any widgets that are _not_ directly linked to a field need to have a custom callback
   // function set up to respond to the "value-changed" signal.
-  g->extra = dt_bauhaus_slider_new_with_range(self, -0.5, 0.5, .01, 0, 2);
+  g->extra = dt_bauhaus_slider_new_with_range(self, -0.5, 0.5, 0, 0, 2);
   dt_bauhaus_widget_set_label(g->extra, NULL, N_("extra"));
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(g->extra), TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(g->extra), "value-changed", G_CALLBACK(extra_callback), self);
@@ -628,15 +630,18 @@ GSList *mouse_actions(dt_iop_module_t *self)
 {
   GSList *lm = NULL;
   // add the first action
-  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_SCROLL, GDK_SHIFT_MASK, 
+  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_SCROLL, GDK_SHIFT_MASK,
                                      _("[%s] some action"), self->name());
   // append a second action to the list we will return
-  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK | GDK_SHIFT_MASK, 
+  lm = dt_mouse_action_create_format(lm, DT_MOUSE_ACTION_LEFT_DRAG, GDK_CONTROL_MASK | GDK_SHIFT_MASK,
                                      _("[%s] other action"), self->name());
   return lm;
 }
 #endif
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

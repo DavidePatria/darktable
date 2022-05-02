@@ -114,11 +114,10 @@ typedef enum dt_iop_flags_t
 /** status of a module*/
 typedef enum dt_iop_module_state_t
 {
-  dt_iop_state_HIDDEN = 0, // keep first
-  dt_iop_state_ACTIVE,
-  dt_iop_state_FAVORITE,
-  dt_iop_state_LAST
-
+  IOP_STATE_HIDDEN = 0, // keep first
+  IOP_STATE_ACTIVE,
+  IOP_STATE_FAVORITE,
+  IOP_STATE_LAST
 } dt_iop_module_state_t;
 
 typedef struct dt_iop_gui_data_t
@@ -141,18 +140,16 @@ typedef enum dt_dev_request_colorpick_flags_t
 /** colorspace enums, must be in synch with dt_iop_colorspace_type_t in color_conversion.cl */
 typedef enum dt_iop_colorspace_type_t
 {
-  iop_cs_NONE = -1,
-  iop_cs_RAW = 0,
-  iop_cs_Lab = 1,
-  iop_cs_rgb = 2,
-  iop_cs_LCh = 3,
-  iop_cs_HSL = 4,
-  iop_cs_JzCzhz = 5,
+  IOP_CS_NONE = -1,
+  IOP_CS_RAW = 0,
+  IOP_CS_LAB = 1,
+  IOP_CS_RGB = 2,
+  IOP_CS_LCH = 3,
+  IOP_CS_HSL = 4,
+  IOP_CS_JZCZHZ = 5,
 } dt_iop_colorspace_type_t;
 
 /** part of the module which only contains the cached dlopen stuff. */
-struct dt_iop_module_so_t;
-struct dt_iop_module_t;
 typedef struct dt_iop_module_so_t
 {
   dt_action_t actions; // !!! NEEDS to be FIRST (to be able to cast convert)
@@ -217,8 +214,8 @@ typedef struct dt_iop_module_t
   /** maximum levels in histogram, one per channel */
   uint32_t histogram_max[4];
   /** requested colorspace for the histogram, valid options are:
-   * iop_cs_NONE: module colorspace
-   * iop_cs_LCh: for Lab modules
+   * IOP_CS_NONE: module colorspace
+   * IOP_CS_LCH: for Lab modules
    */
   dt_iop_colorspace_type_t histogram_cst;
   /** scale the histogram so the middle grey is at .5 */
@@ -273,13 +270,13 @@ typedef struct dt_iop_module_t
   /** fusion slider */
   GtkWidget *fusion_slider;
 
+  /* list of instance widgets and associated actions. Bauhaus with field pointer at end, starting from widget_list_bh */
   GSList *widget_list;
-  /** show/hide guide button */
+  GSList *widget_list_bh;
+
+  /** show/hide guide button and combobox */
   GtkWidget *guides_toggle;
-  /** list of closures: show, enable/disable */
-  GSList *accel_closures;
-  GSList *accel_closures_local;
-  gboolean local_closures_connected;
+  GtkWidget *guides_combo;
 
   /** flag in case the module has troubles (bad settings) - if TRUE, show a warning sign next to module label */
   gboolean has_trouble;
@@ -293,7 +290,6 @@ typedef struct dt_iop_module_t
   gboolean multi_show_up;
   gboolean multi_show_down;
   gboolean multi_show_new;
-  GtkWidget *duplicate_button;
   GtkWidget *multimenu_button;
 
   /** delayed-event handling */
@@ -306,6 +302,12 @@ typedef struct dt_iop_module_t
   // introspection related data
   gboolean have_introspection;
 } dt_iop_module_t;
+
+typedef struct dt_action_target_t
+{
+  dt_action_t *action;
+  void *target;
+} dt_action_target_t;
 
 /** loads and inits the modules in the plugins/ directory. */
 void dt_iop_load_modules_so(void);
@@ -404,7 +406,7 @@ dt_iop_module_t *dt_iop_get_colorout_module(void);
 dt_iop_module_t *dt_iop_get_module_from_list(GList *iop_list, const char *op);
 dt_iop_module_t *dt_iop_get_module(const char *op);
 /** returns module with op + multi_priority or NULL if not found on the list,
-    if multi_priority == -1 do not checl for it */
+    if multi_priority == -1 do not check for it */
 dt_iop_module_t *dt_iop_get_module_by_op_priority(GList *modules, const char *operation, const int multi_priority);
 /** returns module with op + multi_name or NULL if not found on the list,
     if multi_name == NULL do not check for it */
@@ -419,11 +421,11 @@ gboolean dt_iop_is_first_instance(GList *modules, dt_iop_module_t *module);
 
 
 /** get module flags, works in dev and lt mode */
-int get_module_flags(const char *op);
+int dt_iop_get_module_flags(const char *op);
 
 /** returns the localized plugin name for a given op name. must not be freed. */
-gchar *dt_iop_get_localized_name(const gchar *op);
-gchar *dt_iop_get_localized_aliases(const gchar *op);
+const gchar *dt_iop_get_localized_name(const gchar *op);
+const gchar *dt_iop_get_localized_aliases(const gchar *op);
 
 /** set multi_priority and update raster mask links */
 void dt_iop_update_multi_priority(dt_iop_module_t *module, int new_priority);
@@ -475,13 +477,14 @@ void dt_iop_set_module_trouble_message(dt_iop_module_t *module,
                                        const char *stderr_message);
 
 // format modules description going in tooltips
-char *dt_iop_set_description(dt_iop_module_t *module, const char *main_text,
-                             const char *purpose, const char *input,
-                             const char *process, const char *output);
+const char **dt_iop_set_description(dt_iop_module_t *module, const char *main_text,
+                                    const char *purpose, const char *input,
+                                    const char *process, const char *output);
 
 static inline dt_iop_gui_data_t *_iop_gui_alloc(dt_iop_module_t *module, size_t size)
 {
-  module->gui_data = (dt_iop_gui_data_t*)calloc(1, size);
+  // Align so that DT_ALIGNED_ARRAY may be used within gui_data struct
+  module->gui_data = (dt_iop_gui_data_t*)dt_calloc_align(64, size);
   dt_pthread_mutex_init(&module->gui_lock,NULL);
   return module->gui_data;
 }
@@ -489,7 +492,7 @@ static inline dt_iop_gui_data_t *_iop_gui_alloc(dt_iop_module_t *module, size_t 
   (dt_iop_##module##_gui_data_t *)_iop_gui_alloc(self,sizeof(dt_iop_##module##_gui_data_t))
 
 #define IOP_GUI_FREE \
-  dt_pthread_mutex_destroy(&self->gui_lock);if(self->gui_data){free(self->gui_data);} self->gui_data = NULL
+  dt_pthread_mutex_destroy(&self->gui_lock);if(self->gui_data){dt_free_align(self->gui_data);} self->gui_data = NULL
 
 /* return a warning message, prefixed by the special character ⚠ */
 char *dt_iop_warning_message(const char *message);
@@ -501,6 +504,14 @@ gboolean dt_iop_have_required_input_format(const int required_ch, struct dt_iop_
                                            const void *const __restrict__ ivoid, void *const __restrict__ ovoid,
                                            const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out);
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+/* bring up module rename dialog */
+void dt_iop_gui_rename_module(dt_iop_module_t *module);
+
+void dt_iop_gui_changed(dt_action_t *action, GtkWidget *widget, gpointer data);
+
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

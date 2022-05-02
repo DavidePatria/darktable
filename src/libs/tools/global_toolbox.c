@@ -52,8 +52,9 @@ static void _lib_filter_grouping_button_clicked(GtkWidget *widget, gpointer user
 static void _lib_preferences_button_clicked(GtkWidget *widget, gpointer user_data);
 /* callback for help button */
 static void _lib_help_button_clicked(GtkWidget *widget, gpointer user_data);
-/* callback for key mapping button */
+/* callbacks for key mapping button */
 static void _lib_keymap_button_clicked(GtkWidget *widget, gpointer user_data);
+static gboolean _lib_keymap_button_press_release(GtkWidget *button, GdkEventButton *event, gpointer user_data);
 
 const char *name(dt_lib_module_t *self)
 {
@@ -79,13 +80,6 @@ int expandable(dt_lib_module_t *self)
 int position()
 {
   return 1001;
-}
-
-static void _overlays_accels_callback(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval,
-                                      GdkModifierType modifier, gpointer data)
-{
-  dt_thumbnail_overlay_t over = (dt_thumbnail_overlay_t)GPOINTER_TO_INT(data);
-  dt_thumbtable_set_overlays_mode(dt_ui_thumbtable(darktable.gui->ui), over);
 }
 
 static void _overlays_toggle_button(GtkWidget *w, gpointer user_data)
@@ -398,7 +392,8 @@ void gui_init(dt_lib_module_t *self)
   self->widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
   /* create the grouping button */
-  d->grouping_button = dtgtk_togglebutton_new(dtgtk_cairo_paint_grouping, CPF_STYLE_FLAT, NULL);
+  d->grouping_button = dtgtk_togglebutton_new(dtgtk_cairo_paint_grouping, 0, NULL);
+  dt_action_define(&darktable.control->actions_global, NULL, N_("grouping"), d->grouping_button, &dt_action_def_toggle);
   gtk_box_pack_start(GTK_BOX(self->widget), d->grouping_button, FALSE, FALSE, 0);
   if(darktable.gui->grouping)
     gtk_widget_set_tooltip_text(d->grouping_button, _("expand grouped images"));
@@ -409,7 +404,8 @@ void gui_init(dt_lib_module_t *self)
                    NULL);
 
   /* create the "show/hide overlays" button */
-  d->overlays_button = dtgtk_button_new(dtgtk_cairo_paint_overlays, CPF_STYLE_FLAT, NULL);
+  d->overlays_button = dtgtk_button_new(dtgtk_cairo_paint_overlays, 0, NULL);
+  dt_action_define(&darktable.control->actions_global, NULL, N_("thumbnail overlays options"), d->overlays_button, &dt_action_def_button);
   gtk_widget_set_tooltip_text(d->overlays_button, _("click to change the type of overlays shown on thumbnails"));
   gtk_box_pack_start(GTK_BOX(self->widget), d->overlays_button, FALSE, FALSE, 0);
   d->over_popup = gtk_popover_new(d->overlays_button);
@@ -423,39 +419,31 @@ void gui_init(dt_lib_module_t *self)
 
   gtk_container_add(GTK_CONTAINER(d->over_popup), vbox);
 
+#define NEW_RADIO(widget, box, callback, label)                                               \
+  rb = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(rb), _(label)); \
+  dt_action_define(ac, NULL, label, rb, &dt_action_def_button);                     \
+  g_signal_connect(G_OBJECT(rb), "clicked", G_CALLBACK(callback), self);            \
+  gtk_box_pack_start(GTK_BOX(box), rb, TRUE, TRUE, 0);                              \
+  widget = rb;
+
   // thumbnails overlays
   d->thumbnails_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
   d->over_label = gtk_label_new(_("overlay mode for size"));
-  gtk_widget_set_name(d->over_label, "overlays_label");
+  dt_gui_add_class(d->over_label, "dt_section_label");
   gtk_box_pack_start(GTK_BOX(d->thumbnails_box), d->over_label, TRUE, TRUE, 0);
-  d->over_r0 = gtk_radio_button_new_with_label(NULL, _("no overlays"));
-  g_signal_connect(G_OBJECT(d->over_r0), "toggled", G_CALLBACK(_overlays_toggle_button), self);
-  gtk_box_pack_start(GTK_BOX(d->thumbnails_box), d->over_r0, TRUE, TRUE, 0);
-  d->over_r1
-      = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_r0), _("overlays on mouse hover"));
-  g_signal_connect(G_OBJECT(d->over_r1), "toggled", G_CALLBACK(_overlays_toggle_button), self);
-  gtk_box_pack_start(GTK_BOX(d->thumbnails_box), d->over_r1, TRUE, TRUE, 0);
-  d->over_r2 = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_r0),
-                                                           _("extended overlays on mouse hover"));
-  g_signal_connect(G_OBJECT(d->over_r2), "toggled", G_CALLBACK(_overlays_toggle_button), self);
-  gtk_box_pack_start(GTK_BOX(d->thumbnails_box), d->over_r2, TRUE, TRUE, 0);
-  d->over_r3 = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_r0), _("permanent overlays"));
-  g_signal_connect(G_OBJECT(d->over_r3), "toggled", G_CALLBACK(_overlays_toggle_button), self);
-  gtk_box_pack_start(GTK_BOX(d->thumbnails_box), d->over_r3, TRUE, TRUE, 0);
-  d->over_r4 = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_r0),
-                                                           _("permanent extended overlays"));
-  g_signal_connect(G_OBJECT(d->over_r4), "toggled", G_CALLBACK(_overlays_toggle_button), self);
-  gtk_box_pack_start(GTK_BOX(d->thumbnails_box), d->over_r4, TRUE, TRUE, 0);
-  d->over_r5 = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_r0),
-                                                           _("permanent overlays extended on mouse hover"));
-  g_signal_connect(G_OBJECT(d->over_r5), "toggled", G_CALLBACK(_overlays_toggle_button), self);
-  gtk_box_pack_start(GTK_BOX(d->thumbnails_box), d->over_r5, TRUE, TRUE, 0);
+
+  dt_action_t *ac = dt_action_section(&darktable.control->actions_global, N_("thumbnail overlays"));
+  GtkWidget *rb = NULL;
+  NEW_RADIO(d->over_r0, d->thumbnails_box, _overlays_toggle_button, N_("no overlays"));
+  NEW_RADIO(d->over_r1, d->thumbnails_box, _overlays_toggle_button, N_("overlays on mouse hover"));
+  NEW_RADIO(d->over_r2, d->thumbnails_box, _overlays_toggle_button, N_("extended overlays on mouse hover"));
+  NEW_RADIO(d->over_r3, d->thumbnails_box, _overlays_toggle_button, N_("permanent overlays"));
+  NEW_RADIO(d->over_r4, d->thumbnails_box, _overlays_toggle_button, N_("permanent extended overlays"));
+  NEW_RADIO(d->over_r5, d->thumbnails_box, _overlays_toggle_button, N_("permanent overlays extended on mouse hover"));
   GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  d->over_r6 = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_r0),
-                                                           _("overlays block on mouse hover during (s)"));
-  g_signal_connect(G_OBJECT(d->over_r6), "toggled", G_CALLBACK(_overlays_toggle_button), self);
-  gtk_box_pack_start(GTK_BOX(hbox), d->over_r6, TRUE, TRUE, 0);
+  NEW_RADIO(d->over_r6, hbox, _overlays_toggle_button, N_("overlays block on mouse hover"));
+  gtk_box_pack_start(GTK_BOX(hbox), gtk_label_new(_("during (s)")), FALSE, FALSE, 0);
   d->over_timeout = gtk_spin_button_new_with_range(-1, 99, 1);
   g_signal_connect(G_OBJECT(d->over_timeout), "value-changed", G_CALLBACK(_overlays_timeout_changed), self);
   gtk_box_pack_start(GTK_BOX(hbox), d->over_timeout, TRUE, TRUE, 0);
@@ -471,24 +459,17 @@ void gui_init(dt_lib_module_t *self)
   d->culling_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
   d->over_culling_label = gtk_label_new(_("overlay mode for size"));
-  gtk_widget_set_name(d->over_culling_label, "overlays_label");
+  dt_gui_add_class(d->over_culling_label, "dt_section_label");
   gtk_box_pack_start(GTK_BOX(d->culling_box), d->over_culling_label, TRUE, TRUE, 0);
-  d->over_culling_r0 = gtk_radio_button_new_with_label(NULL, _("no overlays"));
-  g_signal_connect(G_OBJECT(d->over_culling_r0), "toggled", G_CALLBACK(_overlays_toggle_culling_button), self);
-  gtk_box_pack_start(GTK_BOX(d->culling_box), d->over_culling_r0, TRUE, TRUE, 0);
-  d->over_culling_r3
-      = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_culling_r0), _("permanent overlays"));
-  g_signal_connect(G_OBJECT(d->over_culling_r3), "toggled", G_CALLBACK(_overlays_toggle_culling_button), self);
-  gtk_box_pack_start(GTK_BOX(d->culling_box), d->over_culling_r3, TRUE, TRUE, 0);
-  d->over_culling_r4 = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_culling_r0),
-                                                                   _("permanent extended overlays"));
-  g_signal_connect(G_OBJECT(d->over_culling_r4), "toggled", G_CALLBACK(_overlays_toggle_culling_button), self);
-  gtk_box_pack_start(GTK_BOX(d->culling_box), d->over_culling_r4, TRUE, TRUE, 0);
+
+  ac = dt_action_section(&darktable.control->actions_global, N_("culling overlays"));
+  rb = NULL;
+  NEW_RADIO(d->over_culling_r0, d->culling_box, _overlays_toggle_culling_button, N_("no overlays"));
+  NEW_RADIO(d->over_culling_r3, d->culling_box, _overlays_toggle_culling_button, N_("permanent overlays"));
+  NEW_RADIO(d->over_culling_r4, d->culling_box, _overlays_toggle_culling_button, N_("permanent extended overlays"));
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  d->over_culling_r6 = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(d->over_culling_r0),
-                                                                   _("overlays block on mouse hover during (s)"));
-  g_signal_connect(G_OBJECT(d->over_culling_r6), "toggled", G_CALLBACK(_overlays_toggle_culling_button), self);
-  gtk_box_pack_start(GTK_BOX(hbox), d->over_culling_r6, TRUE, TRUE, 0);
+  NEW_RADIO(d->over_culling_r6, hbox, _overlays_toggle_culling_button, N_("overlays block on mouse hover"));
+  gtk_box_pack_start(GTK_BOX(hbox), gtk_label_new(_("during (s)")), FALSE, FALSE, 0);
   d->over_culling_timeout = gtk_spin_button_new_with_range(-1, 99, 1);
   g_signal_connect(G_OBJECT(d->over_culling_timeout), "value-changed", G_CALLBACK(_overlays_timeout_changed), self);
   gtk_box_pack_start(GTK_BOX(hbox), d->over_culling_timeout, TRUE, TRUE, 0);
@@ -499,36 +480,40 @@ void gui_init(dt_lib_module_t *self)
   gtk_box_pack_start(GTK_BOX(d->culling_box), d->over_culling_tt, TRUE, TRUE, 0);
 
   gtk_box_pack_start(GTK_BOX(vbox), d->culling_box, TRUE, TRUE, 0);
-  gtk_widget_show(vbox);
+#undef NEW_RADIO
+
+  gtk_widget_show_all(vbox);
 
   /* create the widget help button */
-  d->help_button = dtgtk_togglebutton_new(dtgtk_cairo_paint_help, CPF_STYLE_FLAT, NULL);
+  d->help_button = dtgtk_togglebutton_new(dtgtk_cairo_paint_help, 0, NULL);
+  dt_action_define(&darktable.control->actions_global, NULL, N_("help"), d->help_button, &dt_action_def_toggle);
   gtk_box_pack_start(GTK_BOX(self->widget), d->help_button, FALSE, FALSE, 0);
   gtk_widget_set_tooltip_text(d->help_button, _("enable this, then click on a control element to see its online help"));
   g_signal_connect(G_OBJECT(d->help_button), "clicked", G_CALLBACK(_lib_help_button_clicked), d);
-  dt_gui_add_help_link(d->help_button, dt_get_help_url("global_toolbox_help"));
 
   /* create the shortcuts button */
-  d->keymap_button = dtgtk_togglebutton_new(dtgtk_cairo_paint_shortcut, CPF_STYLE_FLAT, NULL);
+  d->keymap_button = dtgtk_togglebutton_new(dtgtk_cairo_paint_shortcut, 0, NULL);
+  dt_action_define(&darktable.control->actions_global, NULL, N_("shortcuts"), d->keymap_button, &dt_action_def_toggle);
   gtk_box_pack_start(GTK_BOX(self->widget), d->keymap_button, FALSE, FALSE, 0);
   gtk_widget_set_tooltip_text(d->keymap_button, _("define shortcuts\n"
+                                                  "ctrl+click to switch off overwrite confirmations\n\n"
                                                   "hover over a widget and press keys with mouse click and scroll or move combinations\n"
                                                   "repeat same combination again to delete mapping\n"
                                                   "click on a widget, module or screen area to open the dialog for further configuration"));
   g_signal_connect(G_OBJECT(d->keymap_button), "clicked", G_CALLBACK(_lib_keymap_button_clicked), d);
-  dt_gui_add_help_link(d->keymap_button, dt_get_help_url("global_toolbox_keymap"));
+  g_signal_connect(G_OBJECT(d->keymap_button), "button-press-event", G_CALLBACK(_lib_keymap_button_press_release), d);
+  g_signal_connect(G_OBJECT(d->keymap_button), "button-release-event", G_CALLBACK(_lib_keymap_button_press_release), d);
 
   // the rest of these is added in reverse order as they are always put at the end of the container.
   // that's done so that buttons added via Lua will come first.
 
   /* create the preference button */
-  d->preferences_button = dtgtk_button_new(dtgtk_cairo_paint_preferences, CPF_STYLE_FLAT, NULL);
+  d->preferences_button = dtgtk_button_new(dtgtk_cairo_paint_preferences, 0, NULL);
+  dt_action_define(&darktable.control->actions_global, NULL, N_("preferences"), d->preferences_button, &dt_action_def_button);
   gtk_box_pack_end(GTK_BOX(self->widget), d->preferences_button, FALSE, FALSE, 0);
   gtk_widget_set_tooltip_text(d->preferences_button, _("show global preferences"));
   g_signal_connect(G_OBJECT(d->preferences_button), "clicked", G_CALLBACK(_lib_preferences_button_clicked),
                    NULL);
-  dt_gui_add_help_link(d->preferences_button, dt_get_help_url("global_toolbox_preferences"));
-
 }
 
 void gui_cleanup(dt_lib_module_t *self)
@@ -586,18 +571,13 @@ static char *_get_base_url()
 {
   const gboolean use_default_url =
     dt_conf_get_bool("context_help/use_default_url");
-  const char *c_base_url = dt_confgen_get
-    (dt_is_dev_version() ? "context_help/dev_url" : "context_help/url",
-     DT_DEFAULT);
-  char *base_url = dt_conf_get_string
-    (dt_is_dev_version() ? "context_help/dev_url" : "context_help/url");
+  const char *c_base_url = dt_confgen_get("context_help/url", DT_DEFAULT);
+  char *base_url = dt_conf_get_string("context_help/url");
 
   if(use_default_url)
   {
     // want to use default URL, reset darktablerc
-    dt_conf_set_string
-      (dt_is_dev_version() ? "context_help/dev_url" : "context_help/url",
-       c_base_url);
+    dt_conf_set_string("context_help/url", c_base_url);
     return g_strdup(c_base_url);
   }
   else
@@ -617,6 +597,10 @@ static void _main_do_event_help(GdkEvent *event, gpointer data)
       GtkWidget *event_widget = gtk_get_event_widget(event);
       if(event_widget)
       {
+        // if clicking on help button again process normally to switch off mode
+        if(event_widget == d->help_button)
+          break;
+
         // TODO: When the widget doesn't have a help url set we should probably look at the parent(s)
         gchar *help_url = get_help_url(event_widget);
         if(help_url && *help_url)
@@ -625,8 +609,19 @@ static void _main_do_event_help(GdkEvent *event, gpointer data)
           dt_print(DT_DEBUG_CONTROL, "[context help] opening `%s'\n", help_url);
           char *base_url = _get_base_url();
 
+          // The base_url is: docs.darktable.org/usermanual
+          // The full format for the documentation pages is:
+          //    <base-url>/<ver>/<lang>[/path/to/page]
+          // Where:
+          //   <ver>  = development | 3.6 | 3.8 ...
+          //   <lang> = en / fr ...              (default = en)
+
           // in case of a standard release, append the dt version to the url
-          if(!dt_is_dev_version())
+          if(dt_is_dev_version())
+          {
+            base_url = dt_util_dstrcat(base_url, "development/");
+          }
+          else
           {
             char *ver = dt_version_major_minor();
             base_url = dt_util_dstrcat(base_url, "%s/", ver);
@@ -668,35 +663,56 @@ static void _main_do_event_help(GdkEvent *event, gpointer data)
           }
           if(base_url)
           {
-            gboolean is_language_supported = FALSE;
             char *lang = "en";
             GError *error = NULL;
 
-            if(darktable.l10n!=NULL)
+            // array of languages the usermanual supports.
+            // NULL MUST remain the last element of the array
+            const char *supported_languages[] =
+              { "en", "fr", "de", "eo", "es", "gl", "it", "pl", "pt-br", "uk", NULL };
+            int lang_index = 0;
+            gboolean is_language_supported = FALSE;
+
+            if(darktable.l10n != NULL)
             {
               dt_l10n_language_t *language = NULL;
-              if(darktable.l10n->selected!=-1)
+              if(darktable.l10n->selected != -1)
                   language = (dt_l10n_language_t *)g_list_nth(darktable.l10n->languages, darktable.l10n->selected)->data;
               if (language != NULL)
                 lang = language->code;
-              // array of languages the usermanual supports.
-              // NULL MUST remain the last element of the array
-              const char *supported_languages[] = { "en", NULL }; // "fr", "it", "es", "de", "pl", NULL };
-              int i = 0;
-              while(supported_languages[i])
+              while(supported_languages[lang_index])
               {
-                if(!strcmp(lang, supported_languages[i]))
+                gchar *nlang = g_strdup(lang);
+
+                // try lang as-is
+                if(!g_ascii_strcasecmp(nlang, supported_languages[lang_index]))
                 {
                   is_language_supported = TRUE;
-                  break;
                 }
-                i++;
+
+                if(!is_language_supported)
+                {
+                  // keep only first part up to _
+                  for(gchar *p = nlang; *p; p++)
+                    if(*p == '_') *p = '\0';
+
+                  if(!g_ascii_strcasecmp(nlang, supported_languages[lang_index]))
+                  {
+                    is_language_supported = TRUE;
+                  }
+                }
+
+                g_free(nlang);
+                if(is_language_supported) break;
+
+                lang_index++;
               }
             }
-            if(!is_language_supported) lang = "en";
-            char *url = dt_is_dev_version()
-              ? g_build_path("/", base_url, help_url, NULL)
-              : g_build_path("/", base_url, lang, help_url, NULL);
+
+            // language not found, default to EN
+            if(!is_language_supported) lang_index = 0;
+
+            char *url = g_build_path("/", base_url, supported_languages[lang_index], help_url, NULL);
 
             // TODO: call the web browser directly so that file:// style base for local installs works
             const gboolean uri_success = gtk_show_uri_on_window(GTK_WINDOW(win), url, gtk_get_current_event_time(), &error);
@@ -729,14 +745,7 @@ static void _main_do_event_help(GdkEvent *event, gpointer data)
     case GDK_BUTTON_RELEASE:
     {
       // reset GTK to normal behaviour
-
-      g_signal_handlers_block_by_func(d->help_button, _lib_help_button_clicked, d);
       gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->help_button), FALSE);
-      g_signal_handlers_unblock_by_func(d->help_button, _lib_help_button_clicked, d);
-
-      dt_control_allow_change_cursor();
-      dt_control_change_cursor(GDK_LEFT_PTR);
-      gdk_event_handler_set((GdkEventFunc)gtk_main_do_event, NULL, NULL);
 
       handled = TRUE;
     }
@@ -789,7 +798,8 @@ static void _set_mapping_mode_cursor(GtkWidget *widget)
 
   if(widget && !strcmp(gtk_widget_get_name(widget), "module-header"))
     cursor = GDK_BASED_ARROW_DOWN;
-  else if(darktable.control->mapping_widget && darktable.develop)
+  else if(g_hash_table_lookup(darktable.control->widgets, darktable.control->mapping_widget)
+          && darktable.develop)
   {
     switch(dt_dev_modulegroups_basics_module_toggle(darktable.develop, widget, FALSE))
     {
@@ -804,18 +814,44 @@ static void _set_mapping_mode_cursor(GtkWidget *widget)
   dt_control_forbid_change_cursor();
 }
 
+static void _show_shortcuts_prefs(GtkWidget *w)
+{
+  GtkWidget *shortcuts_dialog = gtk_dialog_new_with_buttons(_("shortcuts"), GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)),
+                                                            GTK_DIALOG_DESTROY_WITH_PARENT, NULL, NULL);
+  if(!_shortcuts_dialog_posize.w)
+    gtk_window_set_default_size(GTK_WINDOW(shortcuts_dialog),
+                                DT_PIXEL_APPLY_DPI(dt_conf_get_int("ui_last/shortcuts_dialog_width")),
+                                DT_PIXEL_APPLY_DPI(dt_conf_get_int("ui_last/shortcuts_dialog_height")));
+  else
+  {
+    gtk_window_move(GTK_WINDOW(shortcuts_dialog), _shortcuts_dialog_posize.x, _shortcuts_dialog_posize.y);
+    gtk_window_resize(GTK_WINDOW(shortcuts_dialog), _shortcuts_dialog_posize.w, _shortcuts_dialog_posize.h);
+  }
+  g_signal_connect(G_OBJECT(shortcuts_dialog), "configure-event", G_CALLBACK(_resize_shortcuts_dialog), NULL);
+
+  //grab the content area of the dialog
+  GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(shortcuts_dialog));
+  gtk_box_pack_start(GTK_BOX(content), dt_shortcuts_prefs(w), TRUE, TRUE, 0);
+
+  gtk_widget_show_all(shortcuts_dialog);
+  gtk_dialog_run(GTK_DIALOG(shortcuts_dialog));
+  gtk_widget_destroy(shortcuts_dialog);
+}
+
 static void _main_do_event_keymap(GdkEvent *event, gpointer data)
 {
   GtkWidget *event_widget = gtk_get_event_widget(event);
 
   switch(event->type)
   {
+  case GDK_LEAVE_NOTIFY:
   case GDK_ENTER_NOTIFY:
-    if(event->crossing.mode == GDK_CROSSING_UNGRAB) break;
+    if(darktable.control->mapping_widget
+       && event->crossing.mode == GDK_CROSSING_UNGRAB)
+      break;
   case GDK_GRAB_BROKEN:
   case GDK_FOCUS_CHANGE:
-    darktable.control->mapping_widget = g_hash_table_lookup(darktable.control->widgets, event_widget)
-                                      ? event_widget : NULL;
+    darktable.control->mapping_widget = event_widget;
     _set_mapping_mode_cursor(event_widget);
     break;
   case GDK_BUTTON_PRESS:
@@ -836,8 +872,12 @@ static void _main_do_event_keymap(GdkEvent *event, gpointer data)
     if(GTK_IS_ENTRY(event_widget))
       break;
 
-    if(event->button.button != GDK_BUTTON_PRIMARY)
+    if(event->button.button == GDK_BUTTON_SECONDARY)
       gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->keymap_button), FALSE);
+    else if(event->button.button == GDK_BUTTON_MIDDLE)
+      dt_shortcut_dispatcher(event_widget, event, data);
+    else if(event->button.button > 7)
+      break;
     else if(dt_modifier_is(event->button.state, GDK_CONTROL_MASK))
     {
       if(darktable.develop)
@@ -854,26 +894,7 @@ static void _main_do_event_keymap(GdkEvent *event, gpointer data)
         break;
 
       gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->keymap_button), FALSE);
-      GtkWidget *shortcuts_dialog = gtk_dialog_new_with_buttons(_("shortcuts"), GTK_WINDOW(main_window),
-                                                                GTK_DIALOG_DESTROY_WITH_PARENT, NULL, NULL);
-      if(!_shortcuts_dialog_posize.w)
-        gtk_window_set_default_size(GTK_WINDOW(shortcuts_dialog),
-                                    DT_PIXEL_APPLY_DPI(dt_conf_get_int("ui_last/shortcuts_dialog_width")),
-                                    DT_PIXEL_APPLY_DPI(dt_conf_get_int("ui_last/shortcuts_dialog_height")));
-      else
-      {
-        gtk_window_move(GTK_WINDOW(shortcuts_dialog), _shortcuts_dialog_posize.x, _shortcuts_dialog_posize.y);
-        gtk_window_resize(GTK_WINDOW(shortcuts_dialog), _shortcuts_dialog_posize.w, _shortcuts_dialog_posize.h);
-      }
-      g_signal_connect(G_OBJECT(shortcuts_dialog), "configure-event", G_CALLBACK(_resize_shortcuts_dialog), NULL);
-
-      //grab the content area of the dialog
-      GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(shortcuts_dialog));
-      gtk_box_pack_start(GTK_BOX(content), dt_shortcuts_prefs(event_widget), TRUE, TRUE, 0);
-
-      gtk_widget_show_all(shortcuts_dialog);
-      gtk_dialog_run(GTK_DIALOG(shortcuts_dialog));
-      gtk_widget_destroy(shortcuts_dialog);
+      _show_shortcuts_prefs(event_widget);
     }
 
     return;
@@ -886,17 +907,24 @@ static void _main_do_event_keymap(GdkEvent *event, gpointer data)
 
 static void _lib_help_button_clicked(GtkWidget *widget, gpointer user_data)
 {
-  dt_control_change_cursor(GDK_X_CURSOR);
-  dt_control_forbid_change_cursor();
-  gdk_event_handler_set(_main_do_event_help, user_data, NULL);
+  if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)))
+  {
+    dt_control_change_cursor(GDK_X_CURSOR);
+    dt_control_forbid_change_cursor();
+    gdk_event_handler_set(_main_do_event_help, user_data, NULL);
+  }
+  else
+  {
+    dt_control_allow_change_cursor();
+    dt_control_change_cursor(GDK_LEFT_PTR);
+    gdk_event_handler_set((GdkEventFunc)gtk_main_do_event, NULL, NULL);
+  }
 }
 
 static void _lib_keymap_button_clicked(GtkWidget *widget, gpointer user_data)
 {
   if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)))
   {
-    dt_control_change_cursor(GDK_X_CURSOR);
-    dt_control_forbid_change_cursor();
     gdk_event_handler_set(_main_do_event_keymap, user_data, NULL);
   }
   else
@@ -908,51 +936,26 @@ static void _lib_keymap_button_clicked(GtkWidget *widget, gpointer user_data)
   }
 }
 
-void init_key_accels(dt_lib_module_t *self)
+static gboolean _lib_keymap_button_press_release(GtkWidget *button, GdkEventButton *event, gpointer user_data)
 {
-  dt_accel_register_global(NC_("accel", "grouping"), 0, 0);
-  dt_accel_register_global(NC_("accel", "thumbnail overlays options"), 0, 0);
-  dt_accel_register_global(NC_("accel", "preferences"), 0, 0);
-  dt_accel_register_global(NC_("accel", "shortcuts"), 0, 0);
+  static guint start_time = 0;
 
-  dt_accel_register_global(NC_("accel", "thumbnail overlays/no overlays"), 0, 0);
-  dt_accel_register_global(NC_("accel", "thumbnail overlays/overlays on mouse hover"), 0, 0);
-  dt_accel_register_global(NC_("accel", "thumbnail overlays/extended overlays on mouse hover"), 0, 0);
-  dt_accel_register_global(NC_("accel", "thumbnail overlays/permanent overlays"), 0, 0);
-  dt_accel_register_global(NC_("accel", "thumbnail overlays/permanent extended overlays"), 0, 0);
-  dt_accel_register_global(NC_("accel", "thumbnail overlays/permanent overlays extended on mouse hover"), 0, 0);
-  dt_accel_register_global(NC_("accel", "thumbnail overlays/overlays block on mouse hover"), 0, 0);
-}
+  darktable.control->confirm_mapping = !dt_modifier_is(event->state, GDK_CONTROL_MASK);
 
-void connect_key_accels(dt_lib_module_t *self)
-{
-  dt_lib_tool_preferences_t *d = (dt_lib_tool_preferences_t *)self->data;
+  int delay = 0;
+  g_object_get(gtk_settings_get_default(), "gtk-long-press-time", &delay, NULL);
 
-  dt_accel_connect_button_lib_as_global(self, "grouping", d->grouping_button);
-  dt_accel_connect_button_lib_as_global(self, "thumbnail overlays options", d->overlays_button);
-  dt_accel_connect_button_lib_as_global(self, "preferences", d->preferences_button);
-  dt_accel_connect_button_lib_as_global(self, "shortcuts", d->keymap_button);
-
-  dt_accel_connect_lib_as_global( self, "thumbnail overlays/no overlays",
-      g_cclosure_new(G_CALLBACK(_overlays_accels_callback), GINT_TO_POINTER(DT_THUMBNAIL_OVERLAYS_NONE), NULL));
-  dt_accel_connect_lib_as_global(self, "thumbnail overlays/overlays on mouse hover",
-                       g_cclosure_new(G_CALLBACK(_overlays_accels_callback),
-                                      GINT_TO_POINTER(DT_THUMBNAIL_OVERLAYS_HOVER_NORMAL), NULL));
-  dt_accel_connect_lib_as_global(self, "thumbnail overlays/extended overlays on mouse hover",
-                       g_cclosure_new(G_CALLBACK(_overlays_accels_callback),
-                                      GINT_TO_POINTER(DT_THUMBNAIL_OVERLAYS_HOVER_EXTENDED), NULL));
-  dt_accel_connect_lib_as_global(self, "thumbnail overlays/permanent overlays",
-                       g_cclosure_new(G_CALLBACK(_overlays_accels_callback),
-                                      GINT_TO_POINTER(DT_THUMBNAIL_OVERLAYS_ALWAYS_NORMAL), NULL));
-  dt_accel_connect_lib_as_global(self, "thumbnail overlays/permanent extended overlays",
-                       g_cclosure_new(G_CALLBACK(_overlays_accels_callback),
-                                      GINT_TO_POINTER(DT_THUMBNAIL_OVERLAYS_ALWAYS_EXTENDED), NULL));
-  dt_accel_connect_lib_as_global(
-      self, "thumbnail overlays/permanent overlays extended on mouse hover",
-      g_cclosure_new(G_CALLBACK(_overlays_accels_callback), GINT_TO_POINTER(DT_THUMBNAIL_OVERLAYS_MIXED), NULL));
-  dt_accel_connect_lib_as_global(self, "thumbnail overlays/overlays block on mouse hover",
-                       g_cclosure_new(G_CALLBACK(_overlays_accels_callback),
-                                      GINT_TO_POINTER(DT_THUMBNAIL_OVERLAYS_HOVER_BLOCK), NULL));
+  if((event->type == GDK_BUTTON_PRESS && event->button == 3) ||
+     (event->type == GDK_BUTTON_RELEASE && event->time - start_time > delay))
+  {
+    _show_shortcuts_prefs(NULL);
+    return TRUE;
+  }
+  else
+  {
+    start_time = event->time;
+    return FALSE;
+  }
 }
 
 #ifdef USE_LUA
@@ -1022,6 +1025,9 @@ void init(struct dt_lib_module_t *self)
 
 #endif // USE_LUA
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

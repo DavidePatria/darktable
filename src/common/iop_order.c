@@ -107,8 +107,8 @@ const dt_iop_order_entry_t legacy_order[] = {
   { {25.0f }, "profile_gamma", 0},
   { {26.0f }, "hazeremoval", 0},
   { {27.0f }, "colorin", 0},
-  { {27.5f }, "diffuse", 0},
   { {27.5f }, "channelmixerrgb", 0},
+  { {27.5f }, "diffuse", 0},
   { {27.5f }, "censorize", 0},
   { {27.5f }, "negadoctor", 0},
   { {27.5f }, "blurs", 0},
@@ -198,8 +198,8 @@ const dt_iop_order_entry_t v30_order[] = {
   { {26.0f }, "profile_gamma", 0},
   { {27.0f }, "equalizer", 0},
   { {28.0f }, "colorin", 0},
-  { {28.5f }, "diffuse", 0},
   { {28.5f }, "channelmixerrgb", 0},
+  { {28.5f }, "diffuse", 0},
   { {28.5f }, "censorize", 0},
   { {28.5f }, "negadoctor", 0},      // Cineon film encoding comes after scanner input color profile
   { {28.5f }, "blurs", 0},           // physically-accurate blurs (motion and lens)
@@ -214,7 +214,7 @@ const dt_iop_order_entry_t v30_order[] = {
   { {33.0f }, "lowpass", 0},         // same
   { {34.0f }, "highpass", 0},        // same
   { {35.0f }, "sharpen", 0},         // same, worst than atrous in same use-case, less control overall
-  
+
   { {37.0f }, "colortransfer", 0},   // probably better if source and destination colours are neutralized in the same
                                   //    colour exchange space, hence after colorin and colorcheckr,
                                   //    but apply after frequential ops in case it does non-linear witchcraft,
@@ -307,8 +307,8 @@ const dt_iop_order_entry_t v30_jpg_order[] = {
   { { 28.0f }, "profile_gamma", 0},
   { { 28.0f }, "equalizer", 0},
   // from there, it's the same as the raw order
-  { { 28.5f }, "diffuse", 0 },
   { { 28.5f }, "channelmixerrgb", 0 },
+  { { 28.5f }, "diffuse", 0 },
   { { 28.5f }, "censorize", 0 },
   { { 28.5f }, "negadoctor", 0 },   // Cineon film encoding comes after scanner input color profile
   { { 28.5f }, "blurs", 0 },        // physically-accurate blurs (motion and lens)
@@ -323,7 +323,7 @@ const dt_iop_order_entry_t v30_jpg_order[] = {
   { { 33.0f }, "lowpass", 0 },       // same
   { { 34.0f }, "highpass", 0 },      // same
   { { 35.0f }, "sharpen", 0 },       // same, worst than atrous in same use-case, less control overall
-  
+
   { { 37.0f }, "colortransfer", 0 }, // probably better if source and destination colours are neutralized in the
                                      // same
                                      //    colour exchange space, hence after colorin and colorcheckr,
@@ -467,6 +467,7 @@ GList *dt_ioppr_get_iop_order_rules()
     { .op_prev = "demosaic",    .op_next = "colorin"     },
     { .op_prev = "colorin",     .op_next = "colorout"    },
     { .op_prev = "colorout",    .op_next = "gamma"       },
+    { .op_prev = "flip",        .op_next = "crop"        }, // crop GUI broken if flip is done on top
     { .op_prev = "flip",        .op_next = "clipping"    }, // clipping GUI broken if flip is done on top
     { .op_prev = "ashift",      .op_next = "clipping"    }, // clipping GUI broken if ashift is done on top
     { .op_prev = "colorin",     .op_next = "channelmixerrgb"},
@@ -749,10 +750,12 @@ gboolean dt_ioppr_has_iop_order_list(int32_t imgid)
   gboolean result = FALSE;
   sqlite3_stmt *stmt;
 
+  // clang-format off
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "SELECT version, iop_list"
                               " FROM main.module_order"
                               " WHERE imgid=?1", -1, &stmt, NULL);
+  // clang-format on
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
 
   if(sqlite3_step(stmt) == SQLITE_ROW)
@@ -778,10 +781,12 @@ GList *dt_ioppr_get_iop_order_list(int32_t imgid, gboolean sorted)
     // search, but there will not be many such presets and we do call this routine
     // only when loading an image and when changing the iop-order.
 
+    // clang-format off
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "SELECT version, iop_list"
                                 " FROM main.module_order"
                                 " WHERE imgid=?1", -1, &stmt, NULL);
+    // clang-format on
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
 
     if(sqlite3_step(stmt) == SQLITE_ROW)
@@ -809,7 +814,7 @@ GList *dt_ioppr_get_iop_order_list(int32_t imgid, gboolean sorted)
           _insert_before(iop_order_list, "rgbcurve", "colorbalancergb");
           _insert_before(iop_order_list, "ashift", "cacorrectrgb");
           _insert_before(iop_order_list, "graduatednd", "crop");
-          _insert_before(iop_order_list, "channelmixerrgb", "diffuse");
+          _insert_before(iop_order_list, "colorbalance", "diffuse");
           _insert_before(iop_order_list, "nlmeans", "blurs");
         }
       }
@@ -2198,3 +2203,8 @@ GList *dt_ioppr_deserialize_iop_order_list(const char *buf, size_t size)
 }
 
 #undef DT_IOP_ORDER_INFO
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
+// vim: shiftwidth=2 expandtab tabstop=2 cindent
+// kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on

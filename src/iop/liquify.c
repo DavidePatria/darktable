@@ -290,7 +290,7 @@ const char *name()
   return _("liquify");
 }
 
-const char *description(struct dt_iop_module_t *self)
+const char **description(struct dt_iop_module_t *self)
 {
   return dt_iop_set_description(self, _("distort parts of the image"),
                                       _("creative"),
@@ -317,7 +317,7 @@ int operation_tags()
 
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
-  return iop_cs_rgb;
+  return IOP_CS_RGB;
 }
 
 /******************************************************************************/
@@ -1598,7 +1598,7 @@ static cl_int_t apply_global_distortion_map_cl(struct dt_iop_module_t *module,
   dt_opencl_set_kernel_arg(devid, gd->warp_kernel, 6, sizeof(cl_mem), &dev_kdesc);
   dt_opencl_set_kernel_arg(devid, gd->warp_kernel, 7, sizeof(cl_mem), &dev_kernel);
 
-  const size_t sizes[] = { ROUNDUPWD(map_extent->width), ROUNDUPHT(map_extent->height) };
+  const size_t sizes[] = { ROUNDUPDWD(map_extent->width, devid), ROUNDUPDHT(map_extent->height, devid) };
   err = dt_opencl_enqueue_kernel_2d(devid, gd->warp_kernel, sizes);
 
 error:
@@ -3085,6 +3085,7 @@ int scrolled(struct dt_iop_module_t *module, double x, double y, int up, uint32_
 
   // add an option to allow skip mouse events while editing masks
   if(darktable.develop->darkroom_skip_mouse_events) return 0;
+  const gboolean incr = dt_mask_scroll_increases(up);
 
   if(g->temp)
   {
@@ -3097,10 +3098,10 @@ int scrolled(struct dt_iop_module_t *module, double x, double y, int up, uint32_
       get_stamp_params(module, &radius, &r, &phi);
 
       float factor = 1.0f;
-      if(up && cabsf(warp->radius - warp->point) > 10.0f)
-        factor *= 0.97f;
-      else if(!up)
+      if(incr)
         factor *= 1.0f / 0.97f;
+      else if(!incr && cabsf(warp->radius - warp->point) > 10.0f)
+        factor *= 0.97f;
 
       r *= factor;
       radius *= factor;
@@ -3118,7 +3119,7 @@ int scrolled(struct dt_iop_module_t *module, double x, double y, int up, uint32_
       float phi = cargf(strength_v);
       const float r = cabsf(strength_v);
 
-      if(up)
+      if(incr)
         phi += DT_M_PI_F / 16.0f;
       else
         phi -= DT_M_PI_F / 16.0f;
@@ -3134,10 +3135,10 @@ int scrolled(struct dt_iop_module_t *module, double x, double y, int up, uint32_
       const float phi = cargf(strength_v);
       float r = cabsf(strength_v);
 
-      if(up)
-        r *= 0.97f;
-      else
+      if(incr)
         r *= 1.0f / 0.97f;
+      else
+        r *= 0.97f;
 
       warp->strength = warp->point + r * cexpf(phi * I);
       dt_conf_set_float(CONF_STRENGTH, r);
@@ -3775,6 +3776,9 @@ static void _liquify_cairo_paint_node_tool(cairo_t *cr, const gint x, const gint
   POSTAMBLE;
 }
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

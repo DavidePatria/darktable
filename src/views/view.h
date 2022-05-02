@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "common/act_on.h"
 #include "common/action.h"
 #include "common/history.h"
 #include "common/image.h"
@@ -109,7 +110,7 @@ typedef enum dt_view_surface_value_t
 
 typedef struct dt_mouse_action_t
 {
-  GtkAccelKey key;
+  GdkModifierType mods;
   dt_mouse_action_type_t action;
   gchar name[256];
 } dt_mouse_action_t;
@@ -160,14 +161,6 @@ typedef enum dt_view_image_over_t
   DT_VIEW_END     = 10, // placeholder for the end of the list
 } dt_view_image_over_t;
 
-// get images to act on for gloabals change (via libs or accels)
-// no need to free the list - done internally
-const GList *dt_view_get_images_to_act_on(const gboolean only_visible, const gboolean force,
-                                          const gboolean ordered);
-gchar *dt_view_get_images_to_act_on_query(const gboolean only_visible);
-// get the main image to act on during global changes (libs, accels)
-int dt_view_get_image_to_act_on();
-
 /** returns an uppercase string of file extension **plus** some flag information **/
 char* dt_view_extend_modes_str(const char * name, const gboolean is_hdr, const gboolean is_bw, const gboolean is_bw_flow);
 /** expose an image and return a cair0_surface. */
@@ -204,16 +197,9 @@ typedef struct dt_view_manager_t
     gboolean prevent_refresh;
   } accels_window;
 
-  struct
-  {
-    GList *images;
-    gboolean ok;
-    int image_over;
-    gboolean inside_table;
-    GSList *active_imgs;
-    gboolean image_over_inside_sel;
-    gboolean ordered;
-  } act_on;
+  // cached list of images to act on
+  dt_act_on_cache_t act_on_cache_all;
+  dt_act_on_cache_t act_on_cache_visible;
 
   /* reusable db statements
    * TODO: reconsider creating a common/database helper API
@@ -243,7 +229,7 @@ typedef struct dt_view_manager_t
   } audio;
 
   // toggle button for guides (in the module toolbox)
-  GtkWidget *guides_toggle, *guides;
+  GtkWidget *guides_toggle, *guides, *guides_colors, *guides_contrast, *guides_popover;
 
   /*
    * Proxy
@@ -269,7 +255,8 @@ typedef struct dt_view_manager_t
     struct
     {
       struct dt_lib_module_t *module;
-      void (*reset_filter)(struct dt_lib_module_t *, gboolean smart_filter);
+      GtkWidget *(*get_filter_box)(struct dt_lib_module_t *);
+      GtkWidget *(*get_sort_box)(struct dt_lib_module_t *);
     } filter;
 
     /* module collection proxy object */
@@ -278,6 +265,15 @@ typedef struct dt_view_manager_t
       struct dt_lib_module_t *module;
       void (*update)(struct dt_lib_module_t *);
     } module_collect;
+
+    /* module collection proxy object */
+    struct
+    {
+      struct dt_lib_module_t *module;
+      void (*update)(struct dt_lib_module_t *);
+      void (*set_sort)(struct dt_lib_module_t *, int sort, gboolean asc);
+      void (*reset_filter)(struct dt_lib_module_t *, gboolean smart_filter);
+    } module_filtering;
 
     /* filmstrip proxy object */
     struct
@@ -412,11 +408,14 @@ const char *dt_view_tethering_get_job_code(const dt_view_manager_t *vm);
 
 /** update the collection module */
 void dt_view_collection_update(const dt_view_manager_t *vm);
+void dt_view_filtering_set_sort(const dt_view_manager_t *vm, int sort, gboolean asc);
 
 /*
  * Filter dropdown proxy
  */
-void dt_view_filter_reset(const dt_view_manager_t *vm, gboolean smart_filter);
+void dt_view_filtering_reset(const dt_view_manager_t *vm, gboolean smart_filter);
+GtkWidget *dt_view_filter_get_filters_box(const dt_view_manager_t *vm);
+GtkWidget *dt_view_filter_get_sort_box(const dt_view_manager_t *vm);
 
 // active images functions
 void dt_view_active_images_reset(gboolean raise);
@@ -475,6 +474,9 @@ void dt_view_map_drag_set_icon(const dt_view_manager_t *vm, GdkDragContext *cont
 void dt_view_print_settings(const dt_view_manager_t *vm, dt_print_info_t *pinfo, dt_images_box *imgs);
 #endif
 
-// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
+

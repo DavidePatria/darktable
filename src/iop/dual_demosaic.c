@@ -61,7 +61,7 @@ static void dual_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict r
   const float contrastf = slider2contrast(dual_threshold);
 
   dt_masks_calc_rawdetail_mask(rgb_data, blend, tmp, width, height, piece->pipe->dsc.temperature.coeffs);
-  dt_masks_calc_detail_mask(blend, blend, tmp, width, height, contrastf, TRUE);  
+  dt_masks_calc_detail_mask(blend, blend, tmp, width, height, contrastf, TRUE);
 
   if(dual_mask)
   {
@@ -69,7 +69,7 @@ static void dual_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict r
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(blend, rgb_data, vng_image, width, height) \
-  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64) 
+  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64)
 #endif
     for(int idx = 0; idx < width * height; idx++)
     {
@@ -82,7 +82,7 @@ static void dual_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict r
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(blend, rgb_data, vng_image, width, height) \
-  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64) 
+  schedule(simd:static) aligned(blend, vng_image, rgb_data : 64)
 #endif
     for(int idx = 0; idx < width * height; idx++)
     {
@@ -113,7 +113,7 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
     piece->pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
 
   {
-    size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+    size_t sizes[3] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
     const dt_aligned_pixel_t wb = { piece->pipe->dsc.temperature.coeffs[0], piece->pipe->dsc.temperature.coeffs[1],
                                     piece->pipe->dsc.temperature.coeffs[2] };
     const int kernel = darktable.opencl->blendop->kernel_calc_Y0_mask;
@@ -126,10 +126,10 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
     dt_opencl_set_kernel_arg(devid, kernel, 6, sizeof(float), &wb[2]);
     const int err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
     if(err != CL_SUCCESS) return FALSE;
-  }  
+  }
 
   {
-    size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+    size_t sizes[3] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
     const int kernel = darktable.opencl->blendop->kernel_calc_scharr_mask;
     dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), &detail);
     dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), &blend);
@@ -137,14 +137,14 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
     dt_opencl_set_kernel_arg(devid, kernel, 3, sizeof(int), &height);
     const int err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
     if(err != CL_SUCCESS) return FALSE;
-  }  
+  }
 
   {
     const int flag = 1;
-    size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+    size_t sizes[3] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
     const int kernel = darktable.opencl->blendop->kernel_calc_blend;
-    dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), &blend);  
-    dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), &detail);  
+    dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), &blend);
+    dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), &detail);
     dt_opencl_set_kernel_arg(devid, kernel, 2, sizeof(int), &width);
     dt_opencl_set_kernel_arg(devid, kernel, 3, sizeof(int), &height);
     dt_opencl_set_kernel_arg(devid, kernel, 4, sizeof(float), &contrastf);
@@ -160,7 +160,7 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
     dev_blurmat = dt_opencl_copy_host_to_device_constant(devid, sizeof(float) * 13, blurmat);
     if(dev_blurmat != NULL)
     {
-      size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+      size_t sizes[3] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
       const int clkernel = darktable.opencl->blendop->kernel_mask_blur;
       dt_opencl_set_kernel_arg(devid, clkernel, 0, sizeof(cl_mem), &detail);
       dt_opencl_set_kernel_arg(devid, clkernel, 1, sizeof(cl_mem), &blend);
@@ -179,7 +179,7 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
   }
 
   {
-    size_t sizes[3] = { ROUNDUPWD(width), ROUNDUPHT(height), 1 };
+    size_t sizes[3] = { ROUNDUPDWD(width, devid), ROUNDUPDHT(height, devid), 1 };
     dt_opencl_set_kernel_arg(devid, gd->kernel_write_blended_dual, 0, sizeof(cl_mem), &high_image);
     dt_opencl_set_kernel_arg(devid, gd->kernel_write_blended_dual, 1, sizeof(cl_mem), &low_image);
     dt_opencl_set_kernel_arg(devid, gd->kernel_write_blended_dual, 2, sizeof(cl_mem), &out);
@@ -194,4 +194,10 @@ gboolean dual_demosaic_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *
   return TRUE;
 }
 #endif
+
+// clang-format off
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
+// vim: shiftwidth=2 expandtab tabstop=2 cindent
+// kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
+// clang-format on
 

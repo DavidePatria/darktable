@@ -29,63 +29,62 @@ jobs:
       INSTALL_PREFIX: ${{ github.workspace }}/install
       ECO: ${{ matrix.eco }}
       CMAKE_BUILD_TYPE: ${{ matrix.btype }}
-      GENERATOR: 'MSYS Makefiles'
+      GENERATOR: Ninja
       TARGET: ${{ matrix.target }}
     steps:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           install: >-
-            pacman-mirrors
-            bash
-            curl
-            git
             base-devel
+            git
             intltool
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-openmp
             mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-cmocka
             mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-libxml2
-            mingw-w64-x86_64-pugixml
-            mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-nsis
+            mingw-w64-x86_64-dbus-glib
+            mingw-w64-x86_64-drmingw
             mingw-w64-x86_64-exiv2
+            mingw-w64-x86_64-gettext
+            mingw-w64-x86_64-gmic
+            mingw-w64-x86_64-graphicsmagick
+            mingw-w64-x86_64-gtk3
+            mingw-w64-x86_64-iso-codes
             mingw-w64-x86_64-lcms2
             mingw-w64-x86_64-lensfun
-            mingw-w64-x86_64-dbus-glib
-            mingw-w64-x86_64-openexr
-            mingw-w64-x86_64-sqlite3
-            mingw-w64-x86_64-libxslt
-            mingw-w64-x86_64-libsoup
             mingw-w64-x86_64-libavif
-            mingw-w64-x86_64-libwebp
-            mingw-w64-x86_64-libsecret
-            mingw-w64-x86_64-lua
-            mingw-w64-x86_64-graphicsmagick
-            mingw-w64-x86_64-openjpeg2
-            mingw-w64-x86_64-gtk3
-            mingw-w64-x86_64-pugixml
             mingw-w64-x86_64-libexif
-            mingw-w64-x86_64-osm-gps-map
             mingw-w64-x86_64-libgphoto2
-            mingw-w64-x86_64-drmingw
-            mingw-w64-x86_64-gettext
+            mingw-w64-x86_64-libheif
+            mingw-w64-x86_64-libjpeg-turbo
+            mingw-w64-x86_64-libsecret
+            mingw-w64-x86_64-libsoup
+            mingw-w64-x86_64-libwebp
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-libxslt
+            mingw-w64-x86_64-lua
+            mingw-w64-x86_64-openexr
+            mingw-w64-x86_64-openjpeg2
+            mingw-w64-x86_64-osm-gps-map
+            mingw-w64-x86_64-portmidi
+            mingw-w64-x86_64-pugixml
             mingw-w64-x86_64-python3
-            mingw-w64-x86_64-iso-codes
             mingw-w64-x86_64-python3-jsonschema
-            mingw-w64-x86_64-python3-six
             mingw-w64-x86_64-python3-setuptools
-            mingw-w64-x86_64-gmic
-            mingw-w64-x86_64-nsis
+            mingw-w64-x86_64-python3-six
+            mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-zlib
           update: true
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
+          fetch-depth: 0
           submodules: true
           path: src
+      - name: Update lensfun data
+        if: ${{ success() && matrix.btype == 'Release' && matrix.target == 'skiptest' }}
+        run: |
+          lensfun-update-data
       - name: Build and Install
         run: |
           cmake -E make_directory "${BUILD_DIR}"
@@ -107,12 +106,11 @@ jobs:
       - name: Package
         if: ${{ success() && matrix.btype == 'Release' && matrix.target == 'skiptest' }}
         run: |
-          lensfun-update-data
           cd "${BUILD_DIR}"
           cmake --build "${BUILD_DIR}" --target package
       - name: Package upload
         if: ${{ success() && matrix.btype == 'Release' && matrix.target == 'skiptest' }}
-        uses: 'actions/upload-artifact@v2'
+        uses: actions/upload-artifact@v3
         with:
           name: darktable.${{ github.sha }}.win64.zip
           path: ${{ env.BUILD_DIR }}/darktable-*.exe

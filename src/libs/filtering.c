@@ -86,6 +86,7 @@ typedef struct dt_lib_filtering_rule_t
   GtkWidget *w_btn_box;
   GtkWidget *w_close;
   GtkWidget *w_off;
+  GtkWidget *w_pin;
 
   GtkWidget *w_widget_box;
   char raw_text[PARAM_STRING_SIZE];
@@ -115,6 +116,7 @@ typedef struct dt_lib_filtering_t
   _widgets_sort_t sorttop;
   GtkWidget *sort_box;
   gboolean manual_sort_set;
+  gboolean leaving;
 
   struct dt_lib_filtering_params_t *params;
 
@@ -197,8 +199,8 @@ typedef struct _filter_t
 #include "libs/filters/iso.c"
 #include "libs/filters/local_copy.c"
 #include "libs/filters/module_order.c"
+#include "libs/filters/rating_range.c"
 #include "libs/filters/rating.c"
-#include "libs/filters/rating_legacy.c"
 #include "libs/filters/ratio.c"
 #include "libs/filters/search.c"
 
@@ -206,13 +208,13 @@ static _filter_t filters[]
     = { { DT_COLLECTION_PROP_COLORLABEL, _colors_widget_init, _colors_update },
         { DT_COLLECTION_PROP_FILENAME, _filename_widget_init, _filename_update },
         { DT_COLLECTION_PROP_TEXTSEARCH, _search_widget_init, _search_update },
-        { DT_COLLECTION_PROP_TIME, _date_widget_init, _date_update },
+        { DT_COLLECTION_PROP_DAY, _date_widget_init, _date_update },
         { DT_COLLECTION_PROP_CHANGE_TIMESTAMP, _date_widget_init, _date_update },
         { DT_COLLECTION_PROP_EXPORT_TIMESTAMP, _date_widget_init, _date_update },
         { DT_COLLECTION_PROP_IMPORT_TIMESTAMP, _date_widget_init, _date_update },
         { DT_COLLECTION_PROP_PRINT_TIMESTAMP, _date_widget_init, _date_update },
         { DT_COLLECTION_PROP_ASPECT_RATIO, _ratio_widget_init, _ratio_update },
-        { DT_COLLECTION_PROP_RATING, _rating_widget_init, _rating_update },
+        { DT_COLLECTION_PROP_RATING_RANGE, _rating_range_widget_init, _rating_range_update },
         { DT_COLLECTION_PROP_APERTURE, _aperture_widget_init, _aperture_update },
         { DT_COLLECTION_PROP_FOCAL_LENGTH, _focal_widget_init, _focal_update },
         { DT_COLLECTION_PROP_ISO, _iso_widget_init, _iso_update },
@@ -221,7 +223,7 @@ static _filter_t filters[]
         { DT_COLLECTION_PROP_LOCAL_COPY, _local_copy_widget_init, _local_copy_update },
         { DT_COLLECTION_PROP_HISTORY, _history_widget_init, _history_update },
         { DT_COLLECTION_PROP_ORDER, _module_order_widget_init, _module_order_update },
-        { DT_COLLECTION_PROP_RATING_LEGACY, _rating_legacy_widget_init, _rating_legacy_update } };
+        { DT_COLLECTION_PROP_RATING, _rating_widget_init, _rating_update } };
 
 static _filter_t *_filters_get(const dt_collection_properties_t prop)
 {
@@ -257,7 +259,7 @@ void init_presets(dt_lib_module_t *self)
   }
 
   // initial preset
-  CLEAR_PARAMS(_PRESET_ALL, DT_COLLECTION_PROP_RATING, DT_COLLECTION_SORT_DATETIME);
+  CLEAR_PARAMS(_PRESET_ALL, DT_COLLECTION_PROP_RATING_RANGE, DT_COLLECTION_SORT_DATETIME);
   params.rules = 3;
   params.rule[0].topbar = 1;
   params.rule[1].item = DT_COLLECTION_PROP_COLORLABEL;
@@ -625,13 +627,6 @@ static void _event_rule_changed(GtkWidget *entry, dt_lib_filtering_rule_t *rule)
 {
   if(rule->manual_widget_set) return;
 
-  // force the on-off to on if topbar
-  if(rule->topbar && !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rule->w_off)))
-  {
-    rule->manual_widget_set++;
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rule->w_off), TRUE);
-    rule->manual_widget_set--;
-  }
   // update the config files
   _conf_update_rule(rule);
 
@@ -653,12 +648,13 @@ static void _range_set_tooltip(_widgets_range_t *special)
 {
   // we recreate the tooltip
   gchar *val = dtgtk_range_select_get_bounds_pretty(DTGTK_RANGE_SELECT(special->range_select));
-  gchar *txt = g_strdup_printf("<b>%s</b>\n%s\n%s\n%s%s",
+  gchar *txt = g_strdup_printf("<b>%s</b>\n%s\n%s",
                                dt_collection_name(special->rule->prop),
                                _("click or click&#38;drag to select one or multiple values"),
-                               _("right-click opens a menu to select the available values"),
-                               _("<b><i>actual selection: </i></b>"),
-                               val);
+                               _("right-click opens a menu to select the available values"));
+
+  if(special->rule->prop != DT_COLLECTION_PROP_RATING_RANGE)
+    txt = g_strdup_printf("%s\n<b><i>%s:</i></b> %s", txt, _("actual selection"), val);
   gtk_widget_set_tooltip_markup(special->range_select, txt);
   g_free(txt);
   g_free(val);
@@ -668,6 +664,7 @@ static void _range_changed(GtkWidget *widget, gpointer user_data)
 {
   _widgets_range_t *special = (_widgets_range_t *)user_data;
   if(special->rule->manual_widget_set) return;
+  if(special->rule->lib->leaving) return;
 
   // we recreate the right raw text and put it in the raw entry
   gchar *txt = dtgtk_range_select_get_raw_text(DTGTK_RANGE_SELECT(special->range_select));
@@ -789,7 +786,7 @@ static void _event_append_rule(GtkWidget *widget, dt_lib_module_t *self)
     // add an empty rule
     if(d->nb_rules >= DT_COLLECTION_MAX_RULES)
     {
-      dt_control_log("You can't have more than %d rules", DT_COLLECTION_MAX_RULES);
+      dt_control_log(_("you can't have more than %d rules"), DT_COLLECTION_MAX_RULES);
       return;
     }
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/item%1d", d->nb_rules);
@@ -844,7 +841,7 @@ static gboolean _rule_show_popup(GtkWidget *widget, dt_lib_filtering_rule_t *rul
   GtkMenuShell *spop = GTK_MENU_SHELL(gtk_menu_new());
   gtk_widget_set_size_request(GTK_WIDGET(spop), 200, -1);
 
-  // the differents categories
+  // the different categories
   _popup_add_item(spop, _("files"), 0, TRUE, NULL, NULL, self, 0.0);
   ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_FILMROLL);
   ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_FOLDERS);
@@ -865,8 +862,8 @@ static gboolean _rule_show_popup(GtkWidget *widget, dt_lib_filtering_rule_t *rul
       ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_METADATA + i);
     }
   }
+  ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_RATING_RANGE);
   ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_RATING);
-  ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_RATING_LEGACY);
   ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_COLORLABEL);
   ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_TEXTSEARCH);
   ADD_COLLECT_ENTRY(spop, DT_COLLECTION_PROP_GEOTAGGING);
@@ -947,8 +944,8 @@ static void _rule_populate_prop_combo(dt_lib_filtering_rule_t *rule)
       ADD_COLLECT_ENTRY(DT_COLLECTION_PROP_METADATA + i);
     }
   }
+  ADD_COLLECT_ENTRY(DT_COLLECTION_PROP_RATING_RANGE);
   ADD_COLLECT_ENTRY(DT_COLLECTION_PROP_RATING);
-  ADD_COLLECT_ENTRY(DT_COLLECTION_PROP_RATING_LEGACY);
   ADD_COLLECT_ENTRY(DT_COLLECTION_PROP_COLORLABEL);
   ADD_COLLECT_ENTRY(DT_COLLECTION_PROP_TEXTSEARCH);
   ADD_COLLECT_ENTRY(DT_COLLECTION_PROP_GEOTAGGING);
@@ -1039,25 +1036,35 @@ static void _topbar_update(dt_lib_module_t *self)
 
 static void _widget_header_update(dt_lib_filtering_rule_t *rule)
 {
-  gtk_widget_set_visible(rule->w_close, !rule->topbar);
-  dtgtk_togglebutton_set_paint(DTGTK_TOGGLEBUTTON(rule->w_off),
-                               (rule->topbar) ? dtgtk_cairo_paint_pin : dtgtk_cairo_paint_switch, 0, NULL);
+  gtk_widget_set_sensitive(rule->w_close, !rule->topbar);
+  gtk_widget_set_sensitive(rule->w_off, !rule->topbar);
+
   if(rule->topbar)
   {
-    gtk_widget_set_tooltip_text(rule->w_off, _("this rule is pinned into the top toolbar\nctrl-click to un-pin"));
+    gtk_widget_set_tooltip_text(rule->w_pin, _("this rule is pinned into the top toolbar\nclick to un-pin"));
+    gtk_widget_set_tooltip_text(rule->w_off, _("you can't disable the rule as it is pinned into the toolbar"));
+    gtk_widget_set_tooltip_text(rule->w_close, _("you can't remove the rule as it is pinned into the toolbar"));
   }
   else
   {
-    gtk_widget_set_tooltip_text(rule->w_off,
-                                _("disable this collect rule\nctrl-click to pin into the top toolbar"));
+    gtk_widget_set_tooltip_text(rule->w_pin, _("click to pin this rule into the top toolbar"));
+    gtk_widget_set_tooltip_text(rule->w_close, _("remove this collect rule"));
+    if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rule->w_off)))
+      gtk_widget_set_tooltip_text(rule->w_off, _("this rule is enabled"));
+    else
+      gtk_widget_set_tooltip_text(rule->w_off, _("this rule is disabled"));
   }
+
   _rule_populate_prop_combo(rule);
 }
 
-static void _rule_topbar_toggle(dt_lib_filtering_rule_t *rule, dt_lib_module_t *self)
+static void _rule_topbar_toggle(GtkWidget *widget, dt_lib_module_t *self)
 {
-  rule->topbar = !rule->topbar;
-  // activate the rule if needed
+  dt_lib_filtering_rule_t *rule = (dt_lib_filtering_rule_t *)g_object_get_data(G_OBJECT(widget), "rule");
+  if(rule->manual_widget_set) return;
+
+  rule->topbar = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rule->w_pin));
+  // if the rule is pinned, then we force it to on
   if(rule->topbar && !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(rule->w_off)))
   {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rule->w_off), TRUE);
@@ -1069,16 +1076,21 @@ static void _rule_topbar_toggle(dt_lib_filtering_rule_t *rule, dt_lib_module_t *
   _widget_header_update(rule);
 }
 
+static void _event_rule_disable(GtkWidget *widget, dt_lib_filtering_rule_t *rule)
+{
+  if(rule->manual_widget_set) return;
+  _event_rule_changed(widget, rule);
+
+  // update the rule header
+  _widget_header_update(rule);
+}
+
 static gboolean _event_rule_close(GtkWidget *widget, GdkEventButton *event, dt_lib_module_t *self)
 {
   dt_lib_filtering_rule_t *rule = (dt_lib_filtering_rule_t *)g_object_get_data(G_OBJECT(widget), "rule");
   if(rule->manual_widget_set) return TRUE;
 
-  if(dt_modifier_is(event->state, GDK_CONTROL_MASK))
-  {
-    _rule_topbar_toggle(rule, self);
-  }
-  else if(!rule->topbar)
+  if(!rule->topbar)
   {
     // decrease the nb of active rules
     dt_lib_filtering_t *d = rule->lib;
@@ -1123,29 +1135,6 @@ static gboolean _event_rule_close(GtkWidget *widget, GdkEventButton *event, dt_l
     return FALSE;
 
   return TRUE;
-}
-
-static gboolean _event_rule_change_popup(GtkWidget *widget, GdkEventButton *event, dt_lib_module_t *self)
-{
-  dt_lib_filtering_rule_t *rule = (dt_lib_filtering_rule_t *)g_object_get_data(G_OBJECT(widget), "rule");
-  if(dt_modifier_is(event->state, GDK_CONTROL_MASK) || (rule->topbar && widget != rule->w_prop))
-  {
-    _rule_topbar_toggle(rule, self);
-  }
-  else if(!rule->topbar && widget == rule->w_prop)
-  {
-    _rule_show_popup(rule->w_prop, rule, self);
-  }
-  else
-    return FALSE;
-  return TRUE;
-}
-
-static void _event_header_resized(GtkWidget *widget, GtkAllocation *allocation, dt_lib_filtering_rule_t *rule)
-{
-  // we want to ensure that the combobox and the buttons box are the same size
-  // so the property widget is centered
-  gtk_widget_set_size_request(rule->w_btn_box, allocation->width, -1);
 }
 
 // initialise or update a rule widget. Return if the a new widget has been created
@@ -1215,24 +1204,26 @@ static gboolean _widget_init(dt_lib_filtering_rule_t *rule, const dt_collection_
     rule->w_off = dtgtk_togglebutton_new(dtgtk_cairo_paint_switch, 0, NULL);
     dt_gui_add_class(rule->w_off, "dt_transparent_background");
     g_object_set_data(G_OBJECT(rule->w_off), "rule", rule);
-    g_signal_connect(G_OBJECT(rule->w_off), "button-press-event", G_CALLBACK(_event_rule_change_popup), self);
-    g_signal_connect(G_OBJECT(rule->w_off), "toggled", G_CALLBACK(_event_rule_changed), rule);
+    g_signal_connect(G_OBJECT(rule->w_off), "toggled", G_CALLBACK(_event_rule_disable), rule);
     gtk_box_pack_end(GTK_BOX(rule->w_btn_box), rule->w_off, FALSE, FALSE, 0);
+
+    // pin button
+    rule->w_pin = dtgtk_togglebutton_new(dtgtk_cairo_paint_pin, 0, NULL);
+    dt_gui_add_class(rule->w_pin, "dt_transparent_background");
+    g_object_set_data(G_OBJECT(rule->w_pin), "rule", rule);
+    g_signal_connect(G_OBJECT(rule->w_pin), "toggled", G_CALLBACK(_rule_topbar_toggle), self);
+    dt_gui_add_class(rule->w_pin, "dt_dimmed");
+    gtk_box_pack_end(GTK_BOX(rule->w_btn_box), rule->w_pin, FALSE, FALSE, 0);
 
     // remove button
     rule->w_close = dtgtk_button_new(dtgtk_cairo_paint_remove, 0, NULL);
-    gtk_widget_set_no_show_all(rule->w_close, TRUE);
     g_object_set_data(G_OBJECT(rule->w_close), "rule", rule);
-    gtk_widget_set_tooltip_text(rule->w_close,
-                                _("remove this collect rule\nctrl-click to pin into the top toolbar"));
     g_signal_connect(G_OBJECT(rule->w_close), "button-press-event", G_CALLBACK(_event_rule_close), self);
     gtk_box_pack_end(GTK_BOX(rule->w_btn_box), rule->w_close, FALSE, FALSE, 0);
-
-    g_signal_connect(G_OBJECT(rule->w_operator), "size-allocate", G_CALLBACK(_event_header_resized), rule);
   }
 
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rule->w_off), !off);
-
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rule->w_off), top || !off);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rule->w_pin), top);
   _widget_header_update(rule);
 
   if(newmain)
@@ -1283,7 +1274,7 @@ static void _filters_gui_update(dt_lib_module_t *self)
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/item%1d", i);
     const dt_collection_properties_t prop = dt_conf_get_int(confname);
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/string%1d", i);
-    const gchar *txt = dt_conf_get_string_const(confname);
+    gchar *txt = dt_conf_get_string(confname);
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/mode%1d", i);
     const dt_lib_collect_mode_t rmode = dt_conf_get_int(confname);
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/top%1d", i);
@@ -1302,6 +1293,7 @@ static void _filters_gui_update(dt_lib_module_t *self)
     {
       _widget_init_special(&d->rule[i], txt, self, TRUE);
     }
+    g_free(txt);
     _widget_update(&d->rule[i]);
   }
 
@@ -1396,24 +1388,30 @@ static void _history_pretty_print(const char *buf, char *out, size_t outsize)
     {
       if(k > 0)
       {
+        c = g_strlcpy(out, "<i>   ", outsize);
+        out += c;
+        outsize -= c;
         switch(mode)
         {
           case DT_LIB_COLLECT_MODE_AND:
-            c = g_strlcpy(out, _(" and "), outsize);
+            c = g_strlcpy(out, _("AND"), outsize);
             out += c;
             outsize -= c;
             break;
           case DT_LIB_COLLECT_MODE_OR:
-            c = g_strlcpy(out, _(" or "), outsize);
+            c = g_strlcpy(out, _("OR"), outsize);
             out += c;
             outsize -= c;
             break;
           default: // case DT_LIB_COLLECT_MODE_AND_NOT:
-            c = g_strlcpy(out, _(" but not "), outsize);
+            c = g_strlcpy(out, _("BUT NOT"), outsize);
             out += c;
             outsize -= c;
             break;
         }
+        c = g_strlcpy(out, "   </i>", outsize);
+        out += c;
+        outsize -= c;
       }
       int i = 0;
       while(str[i] != '\0' && str[i] != '$') i++;
@@ -1429,13 +1427,13 @@ static void _history_pretty_print(const char *buf, char *out, size_t outsize)
 
       if(off)
       {
-        c = snprintf(out, outsize, "%s%s %s", item < DT_COLLECTION_PROP_LAST ? dt_collection_name(item) : "???",
-                     _(" (off)"), pretty);
+        c = snprintf(out, outsize, "<b>%s</b>%s %s",
+                     item < DT_COLLECTION_PROP_LAST ? dt_collection_name(item) : "???", _(" (off)"), pretty);
       }
       else
       {
-        c = snprintf(out, outsize, "%s %s", item < DT_COLLECTION_PROP_LAST ? dt_collection_name(item) : "???",
-                     pretty);
+        c = snprintf(out, outsize, "<b>%s</b> %s",
+                     item < DT_COLLECTION_PROP_LAST ? dt_collection_name(item) : "???", pretty);
       }
 
       g_free(pretty);
@@ -1454,12 +1452,13 @@ static void _event_history_apply(GtkWidget *widget, dt_lib_module_t *self)
 
   char confname[200];
   snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/history%1d", hid);
-  const char *line = dt_conf_get_string_const(confname);
+  gchar *line = dt_conf_get_string(confname);
   if(line && line[0] != '\0')
   {
     dt_collection_deserialize(line, TRUE);
     _filters_gui_update(self);
   }
+  g_free(line);
 }
 
 static void _event_history_show(GtkWidget *widget, gpointer user_data)
@@ -1475,21 +1474,25 @@ static void _event_history_show(GtkWidget *widget, gpointer user_data)
   {
     char confname[200];
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/history%1d", i);
-    const char *line = dt_conf_get_string_const(confname);
+    gchar *line = dt_conf_get_string(confname);
     if(line && line[0] != '\0')
     {
       char str[2048] = { 0 };
       _history_pretty_print(line, str, sizeof(str));
       GtkWidget *smt = gtk_menu_item_new_with_label(str);
-      gtk_widget_set_tooltip_text(smt, str);
+      gtk_widget_set_tooltip_markup(smt, str);
       GtkWidget *child = gtk_bin_get_child(GTK_BIN(smt));
       gtk_label_set_use_markup(GTK_LABEL(child), TRUE);
       g_object_set_data(G_OBJECT(smt), "history", GINT_TO_POINTER(i));
       g_signal_connect(G_OBJECT(smt), "activate", G_CALLBACK(_event_history_apply), self);
       gtk_menu_shell_append(pop, smt);
+      g_free(line);
     }
     else
+    {
+      g_free(line);
       break;
+    }
   }
 
   dt_gui_menu_popup(GTK_MENU(pop), widget, GDK_GRAVITY_SOUTH, GDK_GRAVITY_NORTH);
@@ -1797,7 +1800,7 @@ static void _sort_append_sort(GtkWidget *widget, dt_lib_module_t *self)
     // add an empty rule
     if(d->nb_sort >= DT_COLLECTION_MAX_RULES)
     {
-      dt_control_log("You can't have more than %d sort orders", DT_COLLECTION_MAX_RULES);
+      dt_control_log(_("you can't have more than %d sort orders"), DT_COLLECTION_MAX_RULES);
       return;
     }
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/sort%1d", d->nb_sort);
@@ -1882,12 +1885,13 @@ static void _sort_history_apply(GtkWidget *widget, dt_lib_module_t *self)
 
   char confname[200];
   snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/sort_history%1d", hid);
-  const char *line = dt_conf_get_string_const(confname);
+  gchar *line = dt_conf_get_string(confname);
   if(line && line[0] != '\0')
   {
     dt_collection_sort_deserialize(line);
     _sort_gui_update(self);
   }
+  g_free(line);
 }
 
 static void _dt_images_order_change(gpointer instance, gpointer order, gpointer self)
@@ -1913,7 +1917,7 @@ static void _sort_history_show(GtkWidget *widget, gpointer user_data)
   {
     char confname[200];
     snprintf(confname, sizeof(confname), "plugins/lighttable/filtering/sort_history%1d", i);
-    const char *line = dt_conf_get_string_const(confname);
+    gchar *line = dt_conf_get_string(confname);
     if(line && line[0] != '\0')
     {
       char str[2048] = { 0 };
@@ -1923,9 +1927,13 @@ static void _sort_history_show(GtkWidget *widget, gpointer user_data)
       g_object_set_data(G_OBJECT(smt), "history", GINT_TO_POINTER(i));
       g_signal_connect(G_OBJECT(smt), "activate", G_CALLBACK(_sort_history_apply), self);
       gtk_menu_shell_append(pop, smt);
+      g_free(line);
     }
     else
+    {
+      g_free(line);
       break;
+    }
   }
 
   dt_gui_menu_popup(GTK_MENU(pop), widget, GDK_GRAVITY_SOUTH, GDK_GRAVITY_NORTH);
@@ -1968,7 +1976,7 @@ void gui_init(dt_lib_module_t *self)
   d->rules_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_box_pack_start(GTK_BOX(self->widget), d->rules_box, FALSE, TRUE, 0);
 
-  // the botton buttons for the rules
+  // the bottom buttons for the rules
   GtkWidget *bhbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_set_homogeneous(GTK_BOX(bhbox), TRUE);
   gtk_box_pack_start(GTK_BOX(self->widget), bhbox, TRUE, TRUE, 0);
@@ -1988,7 +1996,7 @@ void gui_init(dt_lib_module_t *self)
   gtk_widget_set_name(d->sort_box, "filter-sort-box");
   gtk_box_pack_start(GTK_BOX(self->widget), d->sort_box, TRUE, TRUE, 0);
 
-  // the botton buttons for the sort
+  // the bottom buttons for the sort
   bhbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_set_homogeneous(GTK_BOX(bhbox), TRUE);
   gtk_box_pack_start(GTK_BOX(self->widget), bhbox, TRUE, TRUE, 0);
@@ -2038,6 +2046,8 @@ void gui_cleanup(dt_lib_module_t *self)
 
 void view_enter(struct dt_lib_module_t *self, struct dt_view_t *old_view, struct dt_view_t *new_view)
 {
+  dt_lib_filtering_t *d = (dt_lib_filtering_t *)self->data;
+  d->leaving = FALSE;
   // if we enter lighttable view, then we need to populate the filter topbar
   // we do it here because we are sure that both libs are loaded at this point
   _topbar_update(self);
@@ -2046,6 +2056,15 @@ void view_enter(struct dt_lib_module_t *self, struct dt_view_t *old_view, struct
   gtk_widget_set_tooltip_text(self->reset_button, _("reset\nctrl-click to remove pinned rules too"));
 }
 
+void view_leave(struct dt_lib_module_t *self, struct dt_view_t *old_view, struct dt_view_t *new_view)
+{
+  if(!new_view)
+  {
+    // we are leaving dt, so we want to avoid pb with focus and such
+    dt_lib_filtering_t *d = (dt_lib_filtering_t *)self->data;
+    d->leaving = TRUE;
+  }
+}
 // clang-format off
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent

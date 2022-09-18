@@ -1152,7 +1152,7 @@ static gboolean rt_wdbar_button_press(GtkWidget *widget, GdkEventButton *event, 
       else
         rt_merge_from_scale_update(g->wdbar_mouse_x / box_w, self);
     }
-    else if (g->curr_scale >= 0)
+    else if(g->curr_scale >= 0)
       rt_curr_scale_update(g->curr_scale, self);
   }
 
@@ -1188,7 +1188,7 @@ static gboolean rt_wdbar_scrolled(GtkWidget *widget, GdkEventScroll *event, dt_i
       rt_num_scales_update(p->num_scales - delta_y, self);
     else if(g->upper_margin) // top slider
       rt_merge_from_scale_update(p->merge_from_scale - delta_y, self);
-    else if (g->curr_scale >= 0)
+    else if(g->curr_scale >= 0)
       rt_curr_scale_update(p->curr_scale - delta_y, self);
   }
 
@@ -1220,14 +1220,14 @@ static gboolean rt_wdbar_motion_notify(GtkWidget *widget, GdkEventMotion *event,
     g->upper_margin = TRUE;
     float middle = box_w * (0.5f + (float)p->merge_from_scale);
     g->upper_cursor = (g->wdbar_mouse_x >= (middle - inset)) && (g->wdbar_mouse_x <= (middle + inset));
-    if (!(g->is_dragging)) g->curr_scale = -1;
+    if(!(g->is_dragging)) g->curr_scale = -1;
   }
-  else if (g->wdbar_mouse_y >= allocation.height - sh)
+  else if(g->wdbar_mouse_y >= allocation.height - sh)
   {
     g->lower_margin = TRUE;
     float middle = box_w * (0.5f + (float)p->num_scales);
     g->lower_cursor = (g->wdbar_mouse_x >= (middle - inset)) && (g->wdbar_mouse_x <= (middle + inset));
-    if (!(g->is_dragging)) g->curr_scale = -1;
+    if(!(g->is_dragging)) g->curr_scale = -1;
   }
 
   if(g->is_dragging == DT_IOP_RETOUCH_WDBAR_DRAG_BOTTOM)
@@ -1425,7 +1425,7 @@ static void rt_gslider_changed(GtkDarktableGradientSlider *gslider, dt_iop_modul
 
   dtgtk_gradient_slider_multivalue_get_values(gslider, dlevels);
 
-  for (int i = 0; i < 3; i++) p->preview_levels[i] = dlevels[i];
+  for(int i = 0; i < 3; i++) p->preview_levels[i] = dlevels[i];
 
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 
@@ -1714,6 +1714,8 @@ static gboolean rt_add_shape_callback(GtkWidget *widget, GdkEventButton *e, dt_i
 
   if(darktable.gui->reset) return FALSE;
 
+  dt_iop_color_picker_reset(self, TRUE);
+
   const int creation_continuous = dt_modifier_is(e->state, GDK_CONTROL_MASK);
 
   rt_add_shape(widget, creation_continuous, self);
@@ -1825,13 +1827,13 @@ static gboolean rt_select_algorithm_callback(GtkToggleButton *togglebutton, GdkE
     dt_conf_set_int("plugins/darkroom/retouch/default_algo", p->algorithm);
     // and we show a toat msg to confirm
     if(p->algorithm == DT_IOP_RETOUCH_CLONE)
-      dt_control_log(N_("default tool changed to %s"), N_("cloning"));
+      dt_control_log(_("default tool changed to %s"), _("cloning"));
     else if(p->algorithm == DT_IOP_RETOUCH_HEAL)
-      dt_control_log(N_("default tool changed to %s"), N_("healing"));
+      dt_control_log(_("default tool changed to %s"), _("healing"));
     else if(p->algorithm == DT_IOP_RETOUCH_FILL)
-      dt_control_log(N_("default tool changed to %s"), N_("blur"));
+      dt_control_log(_("default tool changed to %s"), _("fill"));
     else if(p->algorithm == DT_IOP_RETOUCH_BLUR)
-      dt_control_log(N_("default tool changed to %s"), N_("fill"));
+      dt_control_log(_("default tool changed to %s"), _("blur"));
   }
 
   return TRUE;
@@ -3460,7 +3462,7 @@ static void process_internal(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_
                              void *const ovoid, const dt_iop_roi_t *const roi_in,
                              const dt_iop_roi_t *const roi_out, const int use_sse)
 {
-  if (!dt_iop_have_required_input_format(4 /*we need full-color pixels*/, self, piece->colors,
+  if(!dt_iop_have_required_input_format(4 /*we need full-color pixels*/, self, piece->colors,
                                          ivoid, ovoid, roi_in, roi_out))
     return;
 
@@ -4423,7 +4425,7 @@ cleanup:
 
   if(in_retouch) dt_opencl_release_mem_object(in_retouch);
 
-  if(err != CL_SUCCESS) dt_print(DT_DEBUG_OPENCL, "[opencl_retouch] couldn't enqueue kernel! %d\n", err);
+  if(err != CL_SUCCESS) dt_print(DT_DEBUG_OPENCL, "[opencl_retouch] couldn't enqueue kernel! %s\n", cl_errstr(err));
 
   return (err == CL_SUCCESS) ? TRUE : FALSE;
 }

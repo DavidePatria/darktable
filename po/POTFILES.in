@@ -158,7 +158,6 @@ src/dtgtk/resetlabel.c
 src/dtgtk/thumbnail.c
 src/dtgtk/thumbnail_btn.c
 src/dtgtk/thumbtable.c
-src/external/wb_presets.c
 src/generate-cache/main.c
 src/gui/accelerators.c
 src/gui/gtk.c
@@ -237,6 +236,7 @@ src/iop/grain.c
 src/iop/hazeremoval.c
 src/iop/highlights.c
 src/iop/highpass.c
+src/iop/hlrecovery.c
 src/iop/hotpixels.c
 src/iop/invert.c
 src/iop/lens.cc
@@ -298,6 +298,7 @@ src/libs/filters/iso.c
 src/libs/filters/local_copy.c
 src/libs/filters/module_order.c
 src/libs/filters/rating.c
+src/libs/filters/rating_range.c
 src/libs/filters/ratio.c
 src/libs/filters/search.c
 src/libs/geotagging.c
@@ -314,9 +315,11 @@ src/libs/map_settings.c
 src/libs/masks.c
 src/libs/metadata.c
 src/libs/metadata_view.c
+src/libs/recentcollect.c
 src/libs/modulegroups.c
 src/libs/navigation.c
 src/libs/print_settings.c
+src/libs/recentcollect.c
 src/libs/select.c
 src/libs/session.c
 src/libs/snapshots.c

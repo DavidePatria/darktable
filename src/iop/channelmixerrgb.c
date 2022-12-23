@@ -1917,7 +1917,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
 
     if(data->illuminant_type == DT_ILLUMINANT_DETECT_EDGES || data->illuminant_type == DT_ILLUMINANT_DETECT_SURFACES)
     {
-      if(piece->pipe->type == DT_DEV_PIXELPIPE_FULL)
+      if(piece->pipe->type & DT_DEV_PIXELPIPE_FULL)
       {
         // detection on full image only
         dt_iop_gui_enter_critical_section(self);
@@ -2062,7 +2062,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     }
   }
 
-  cl_int err = -999;
+  cl_int err = DT_OPENCL_DEFAULT_ERROR;
 
   if(piece->colors != 4)
   {
@@ -2117,22 +2117,10 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     }
   }
 
-  dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), (void *)&dev_in);
-  dt_opencl_set_kernel_arg(devid, kernel, 1, sizeof(cl_mem), (void *)&dev_out);
-  dt_opencl_set_kernel_arg(devid, kernel, 2, sizeof(int), (void *)&width);
-  dt_opencl_set_kernel_arg(devid, kernel, 3, sizeof(int), (void *)&height);
-  dt_opencl_set_kernel_arg(devid, kernel, 4, sizeof(cl_mem), (void *)&input_matrix_cl);
-  dt_opencl_set_kernel_arg(devid, kernel, 5, sizeof(cl_mem), (void *)&output_matrix_cl);
-  dt_opencl_set_kernel_arg(devid, kernel, 6, sizeof(cl_mem), (void *)&MIX_cl);
-  dt_opencl_set_kernel_arg(devid, kernel, 7, 4 * sizeof(float), (void *)&d->illuminant);
-  dt_opencl_set_kernel_arg(devid, kernel, 8, 4 * sizeof(float), (void *)&d->saturation);
-  dt_opencl_set_kernel_arg(devid, kernel, 9, 4 * sizeof(float), (void *)&d->lightness);
-  dt_opencl_set_kernel_arg(devid, kernel, 10, 4 * sizeof(float), (void *)&d->grey);
-  dt_opencl_set_kernel_arg(devid, kernel, 11, sizeof(float), (void *)&d->p);
-  dt_opencl_set_kernel_arg(devid, kernel, 12, sizeof(float), (void *)&d->gamut);
-  dt_opencl_set_kernel_arg(devid, kernel, 13, sizeof(int), (void *)&d->clip);
-  dt_opencl_set_kernel_arg(devid, kernel, 14, sizeof(int), (void *)&d->apply_grey);
-  dt_opencl_set_kernel_arg(devid, kernel, 15, sizeof(int), (void *)&d->version);
+  dt_opencl_set_kernel_args(devid, kernel, 0, CLARG(dev_in), CLARG(dev_out), CLARG(width), CLARG(height),
+    CLARG(input_matrix_cl), CLARG(output_matrix_cl), CLARG(MIX_cl), CLARG(d->illuminant), CLARG(d->saturation),
+    CLARG(d->lightness), CLARG(d->grey), CLARG(d->p), CLARG(d->gamut), CLARG(d->clip), CLARG(d->apply_grey),
+    CLARG(d->version));
   err = dt_opencl_enqueue_kernel_2d(devid, kernel, sizes);
   if(err != CL_SUCCESS) goto error;
 
@@ -2853,7 +2841,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
         (g->run_validation && piece->pipe->type == DT_DEV_PIXELPIPE_PREVIEW) || // delta E validation
         ( (d->illuminant_type == DT_ILLUMINANT_DETECT_EDGES ||
            d->illuminant_type == DT_ILLUMINANT_DETECT_SURFACES ) && // WB extraction mode
-           piece->pipe->type == DT_DEV_PIXELPIPE_FULL ) )
+           (piece->pipe->type & DT_DEV_PIXELPIPE_FULL) ) )
     {
       piece->process_cl_ready = 0;
     }
@@ -4238,7 +4226,7 @@ void gui_init(struct dt_iop_module_t *self)
                                   "neutral colors gives the lowest average delta E but a high maximum delta E\n"
                                   "saturated colors gives the lowest maximum delta E but a high average delta E\n"
                                   "none is a trade-off between both\n"
-                                  "the others are special behaviours to protect some hues"),
+                                  "the others are special behaviors to protect some hues"),
                                 0, optimize_changed_callback, self,
                                 N_("none"),
                                 N_("neutral colors"),

@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2021-2022 darktable developers.
+    Copyright (C) 2021-2023 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,8 +20,8 @@
 #include "common/colorspaces.h"
 #include "common/darktable.h"
 #include "common/exif.h"
-#include "common/imageio.h"
 #include "control/conf.h"
+#include "imageio/imageio_common.h"
 #include "imageio/format/imageio_format_api.h"
 
 #include <jxl/encode.h>
@@ -103,7 +103,7 @@ int bpp(dt_imageio_module_data_t *data)
 
 int write_image(struct dt_imageio_module_data_t *data, const char *filename, const void *in_tmp,
                 dt_colorspaces_color_profile_type_t over_type, const char *over_filename, void *exif, int exif_len,
-                int imgid, int num, int total, struct dt_dev_pixelpipe_t *pipe, const gboolean export_masks)
+                dt_imgid_t imgid, int num, int total, struct dt_dev_pixelpipe_t *pipe, const gboolean export_masks)
 {
   // Return error code by default
   int ret = 1;
@@ -245,6 +245,10 @@ int write_image(struct dt_imageio_module_data_t *data, const char *filename, con
     case DT_COLORSPACE_HLG_P3:
       color_encoding.primaries = JXL_PRIMARIES_P3;
       color_encoding.transfer_function = JXL_TRANSFER_FUNCTION_HLG;
+      break;
+    case DT_COLORSPACE_DISPLAY_P3:
+      color_encoding.primaries = JXL_PRIMARIES_P3;
+      color_encoding.transfer_function = JXL_TRANSFER_FUNCTION_SRGB;
       break;
     default:
       write_color_natively = FALSE;

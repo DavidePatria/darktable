@@ -74,6 +74,11 @@ typedef struct dt_iop_colisa_global_data_t
 } dt_iop_colisa_global_data_t;
 
 
+const char *deprecated_msg()
+{
+  return _("this module is deprecated. please use colorbalance RGB module instead.");
+}
+
 const char *name()
 {
   return _("contrast brightness saturation");
@@ -90,7 +95,8 @@ const char **description(struct dt_iop_module_t *self)
 
 int flags()
 {
-  return IOP_FLAGS_INCLUDE_IN_STYLES | IOP_FLAGS_SUPPORTS_BLENDING | IOP_FLAGS_ALLOW_TILING;
+  return IOP_FLAGS_INCLUDE_IN_STYLES | IOP_FLAGS_SUPPORTS_BLENDING
+    | IOP_FLAGS_ALLOW_TILING | IOP_FLAGS_DEPRECATED;
 }
 
 int default_group()
@@ -98,7 +104,9 @@ int default_group()
   return IOP_GROUP_BASIC | IOP_GROUP_GRADING;
 }
 
-int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
+dt_iop_colorspace_type_t default_colorspace(dt_iop_module_t *self,
+                                            dt_dev_pixelpipe_t *pipe,
+                                            dt_dev_pixelpipe_iop_t *piece)
 {
   return IOP_CS_LAB;
 }
@@ -140,21 +148,13 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     CLARG(height), CLARG(saturation), CLARG(dev_cm), CLARG(dev_ccoeffs), CLARG(dev_lm), CLARG(dev_lcoeffs));
 
   err = dt_opencl_enqueue_kernel_2d(devid, gd->kernel_colisa, sizes);
-  if(err != CL_SUCCESS) goto error;
-
-  dt_opencl_release_mem_object(dev_lcoeffs);
-  dt_opencl_release_mem_object(dev_lm);
-  dt_opencl_release_mem_object(dev_ccoeffs);
-  dt_opencl_release_mem_object(dev_cm);
-  return TRUE;
 
 error:
   dt_opencl_release_mem_object(dev_lcoeffs);
   dt_opencl_release_mem_object(dev_lm);
   dt_opencl_release_mem_object(dev_ccoeffs);
   dt_opencl_release_mem_object(dev_cm);
-  dt_print(DT_DEBUG_OPENCL, "[opencl_colisa] couldn't enqueue kernel! %s\n", cl_errstr(err));
-  return FALSE;
+  return err;
 }
 #endif
 
@@ -309,4 +309,3 @@ void gui_init(struct dt_iop_module_t *self)
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

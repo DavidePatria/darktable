@@ -5,20 +5,6 @@ include(manage-symbol-visibility)
 add_definitions(-include common/module_api.h)
 add_definitions(-include libs/lib_api.h)
 
-add_custom_command(
-  DEPENDS ${CMAKE_SOURCE_DIR}/tools/authors_h.sh ${CMAKE_SOURCE_DIR}/AUTHORS
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/tools/darktable_authors.h
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/tools/
-  COMMAND bash ${CMAKE_SOURCE_DIR}/tools/authors_h.sh ${CMAKE_SOURCE_DIR}/AUTHORS ${CMAKE_CURRENT_BINARY_DIR}/tools/darktable_authors.h
-  COMMENT "Generating authors.h for about dialog."
-)
-
-add_custom_target(
-  generate_authors_h ALL
-  DEPENDS ${CMAKE_SOURCE_DIR}/tools/authors_h.sh ${CMAKE_SOURCE_DIR}/AUTHORS ${CMAKE_CURRENT_BINARY_DIR}/tools/darktable_authors.h
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-)
-
 # The modules
 set(MODULES import export copy_history styles tagging image select collect recentcollect filtering metadata metadata_view navigation histogram history snapshots modulegroups backgroundjobs colorpicker masks session duplicate ioporder)
 
@@ -70,7 +56,6 @@ add_library(ioporder MODULE "ioporder.c")
 add_library(viewswitcher MODULE "tools/viewswitcher.c")
 
 add_library(darktable_label MODULE "tools/darktable.c")
-add_dependencies(darktable_label generate_authors_h)
 
 add_library(colorlabels MODULE "tools/colorlabels.c")
 add_library(ratings MODULE "tools/ratings.c")
@@ -92,16 +77,18 @@ if(PortMidi_FOUND)
   target_link_libraries (midi ${PortMidi_LIBRARY})
 endif()
 
-find_package(SDL2)
-if(SDL2_FOUND)
-  add_definitions("-DHAVE_SDL")
-  set(MODULES ${MODULES} gamepad)
-  add_library(gamepad MODULE "tools/gamepad.c")
-  if(TARGET SDL2::SDL2)
-    target_link_libraries(gamepad SDL2::SDL2)
-  else()
-    include_directories(${SDL2_INCLUDE_DIRS})
-    target_link_libraries(gamepad ${SDL2_LIBRARIES})
+if(USE_SDL2)
+  find_package(SDL2)
+  if(SDL2_FOUND)
+    add_definitions("-DHAVE_SDL")
+    set(MODULES ${MODULES} gamepad)
+    add_library(gamepad MODULE "tools/gamepad.c")
+    if(TARGET SDL2::SDL2)
+      target_link_libraries(gamepad SDL2::SDL2)
+    else()
+      include_directories(${SDL2_INCLUDE_DIRS})
+      target_link_libraries(gamepad ${SDL2_LIBRARIES})
+    endif()
   endif()
 endif()
 

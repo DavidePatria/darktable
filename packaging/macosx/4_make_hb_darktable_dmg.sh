@@ -12,7 +12,9 @@ PROGN=darktable
 
 # Go to directory of script
 scriptDir=$(dirname "$0")
-cd "$scriptDir"/
+buildDir="${scriptDir}/../../build/macosx"
+
+cd "$buildDir"/
 
 # Generate symlink to applications folder for easier drag & drop within dmg
 ln -s /Applications package/ || true
@@ -46,7 +48,7 @@ echo '
 chmod -Rf go-w /Volumes/"${PROGN}"
 sync
 hdiutil detach ${device}
-DMG="${PROGN}-$(git describe --tags | sed 's/^release-//;s/-/+/;s/-/~/;s/rc/~rc/')-$(arch)"
+DMG="${PROGN}-$(git describe --tags --match release-* | sed 's/^release-//;s/-/+/;s/-/~/;s/rc/~rc/')-$(uname -m)"
 hdiutil convert "pack.temp.dmg" -format UDZO -imagekey zlib-level=9 -o "${DMG}"
 rm -f pack.temp.dmg
 

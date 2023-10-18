@@ -109,7 +109,7 @@ static gboolean _grouping_update(dt_lib_filtering_rule_t *rule)
   g_snprintf(query, sizeof(query),
                    "SELECT gr_count, COUNT(gr_count) "
                    " FROM (SELECT COUNT(*) AS gr_count "
-                   "        FROM main.images "
+                   "        FROM main.images AS mi"
                    "        WHERE %s "
                    "        GROUP BY group_id)"
                    " GROUP BY gr_count "
@@ -164,11 +164,11 @@ static void _grouping_widget_init(dt_lib_filtering_rule_t *rule, const dt_collec
   _widgets_grouping_t *grouping = (_widgets_grouping_t *)g_malloc0(sizeof(_widgets_grouping_t));
   grouping->rule = rule;
 
-  DT_BAUHAUS_COMBOBOX_NEW_FULL(grouping->combo, self, NULL, N_("grouping filter"),
+  DT_BAUHAUS_COMBOBOX_NEW_FULL(grouping->combo, self, N_("rules"), N_("grouping"),
                                _("select the type of grouped image to filter"), 0, _grouping_changed,
                                grouping, N_("all images"), N_("ungrouped images"), N_("grouped images"),
                                N_("group leaders"), N_("group followers"));
-  DT_BAUHAUS_WIDGET(grouping->combo)->show_label = FALSE;
+  dt_bauhaus_widget_hide_label(grouping->combo);
 
   if(top)
     gtk_box_pack_start(GTK_BOX(rule->w_special_box_top), grouping->combo, TRUE, TRUE, 0);

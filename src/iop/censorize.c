@@ -1,6 +1,6 @@
 /*
   This file is part of darktable,
-  Copyright (C) 2020 darktable developers.
+  Copyright (C) 2020-2023 darktable developers.
 
   darktable is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -96,7 +96,9 @@ int default_group()
   return IOP_GROUP_EFFECT | IOP_GROUP_EFFECTS;
 }
 
-int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
+dt_iop_colorspace_type_t default_colorspace(dt_iop_module_t *self,
+                                            dt_dev_pixelpipe_t *pipe,
+                                            dt_dev_pixelpipe_iop_t *piece)
 {
   return IOP_CS_RGB;
 }
@@ -138,6 +140,14 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
                                          ivoid, ovoid, roi_in, roi_out))
     return; // image has been copied through to output and module's trouble flag has been updated
 
+  float *restrict temp;
+  if(!dt_iop_alloc_image_buffers(self,roi_in,roi_out,
+                                 4 | DT_IMGSZ_INPUT, &temp,
+                                 0, NULL))
+  {
+    dt_iop_copy_image_roi(ovoid, ivoid, piece->colors, roi_in, roi_out);
+    return;
+  }
   dt_iop_censorize_data_t *data = (dt_iop_censorize_data_t *)piece->data;
   const float *const restrict in = DT_IS_ALIGNED((const float *const restrict)ivoid);
   float *const restrict out = DT_IS_ALIGNED((float *const restrict)ovoid);
@@ -145,8 +155,6 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   const int width = roi_in->width;
   const int height = roi_in->height;
   const int ch = 4;
-
-  float *const restrict temp = dt_alloc_align_float((size_t)width * height * ch);
 
   const float sigma_1 = data->radius_1 * roi_in->scale / piece->iscale;
   const float sigma_2 = data->radius_2 * roi_in->scale / piece->iscale;
@@ -159,7 +167,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   dt_aligned_pixel_t RGBmax, RGBmin;
   for(int k = 0; k < 4; k++)
   {
-    RGBmax[k] = INFINITY;
+    RGBmax[k] = FLT_MAX;
     RGBmin[k] = 0.f;
   }
 
@@ -250,9 +258,6 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   if(noise != 0.f)
     make_noise(output, noise, width, height);
 
-  if(piece->pipe->mask_display & DT_DEV_PIXELPIPE_DISPLAY_MASK)
-    dt_iop_alpha_copy(ivoid, ovoid, roi_out->width, roi_out->height);
-
   dt_free_align(temp);
 }
 
@@ -292,8 +297,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
 
   if(unbound)
   {
-    for(int k = 0; k < 4; k++) RGBmax[k] = INFINITY;
-    for(int k = 0; k < 4; k++) RGBmin[k] = -INFINITY;
+    for(int k = 0; k < 4; k++) RGBmax[k] = FLT_MAX;
+    for(int k = 0; k < 4; k++) RGBmin[k] = -FLT_MAX;
   }
 
   if(d->lowpass_algo == LOWPASS_ALGO_GAUSSIAN)
@@ -346,15 +351,6 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   err = dt_opencl_enqueue_kernel_2d_args(devid, gd->kernel_lowpass_mix, width, height,
     CLARG(dev_tmp), CLARG(dev_out), CLARG(width), CLARG(height), CLARG(saturation), CLARG(dev_cm),
     CLARG(dev_ccoeffs), CLARG(dev_lm), CLARG(dev_lcoeffs), CLARG(unbound));
-  if(err != CL_SUCCESS) goto error;
-
-  dt_opencl_release_mem_object(dev_tmp);
-  dt_opencl_release_mem_object(dev_lcoeffs);
-  dt_opencl_release_mem_object(dev_lm);
-  dt_opencl_release_mem_object(dev_ccoeffs);
-  dt_opencl_release_mem_object(dev_cm);
-
-  return TRUE;
 
 error:
   if(g) dt_gaussian_free_cl(g);
@@ -365,8 +361,7 @@ error:
   dt_opencl_release_mem_object(dev_lm);
   dt_opencl_release_mem_object(dev_ccoeffs);
   dt_opencl_release_mem_object(dev_cm);
-  dt_print(DT_DEBUG_OPENCL, "[opencl_lowpass] couldn't enqueue kernel! %s\n", cl_errstr(err));
-  return FALSE;
+  return err;
 }
 
 void tiling_callback(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *piece,

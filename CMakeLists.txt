@@ -1,16 +1,12 @@
-cmake_minimum_required(VERSION 3.10.0)
+cmake_minimum_required(VERSION 3.18)
 
 cmake_policy(SET CMP0011 NEW)
 cmake_policy(SET CMP0025 NEW)
 cmake_policy(SET CMP0048 NEW)
+cmake_policy(SET CMP0067 NEW)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/")
-
-find_program(CCACHE_FOUND ccache)
-if(CCACHE_FOUND)
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-endif(CCACHE_FOUND)
 
 ### Add defaults for cmake
 # These defaults need to be included before the project() call.
@@ -139,10 +135,9 @@ if(APPLE)
     string(STRIP "${HOMEBREW_PREFIX}" HOMEBREW_PREFIX)
     message("-- Homebrew detected, setting CMAKE_PREFIX_PATH to ${HOMEBREW_PREFIX}")
     LIST(APPEND CMAKE_PREFIX_PATH ${HOMEBREW_PREFIX})
-    # Explicitly add llvm, icu4c and libsoup@2 to prefix path
+    # Explicitly add llvm and icu4c to prefix path
     LIST(APPEND CMAKE_PREFIX_PATH ${HOMEBREW_PREFIX}/opt/llvm)
     LIST(APPEND CMAKE_PREFIX_PATH ${HOMEBREW_PREFIX}/opt/icu4c)
-    LIST(APPEND CMAKE_PREFIX_PATH ${HOMEBREW_PREFIX}/opt/libsoup@2)
   else()
     message("-- Setting CMAKE_PREFIX_PATH to prefer MacPorts and/or user-installed libraries over system ones")
     LIST(APPEND CMAKE_PREFIX_PATH /opt/local /usr/local)
@@ -152,6 +147,14 @@ if(APPLE)
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib")
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/lib")
 	set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -L/usr/lib")
+
+  if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64" AND CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+    # request classic linker for Xcode 15 for Apple Silicon Macs
+    message("-- Xcode >= 15 on arm6 detected, requesting classic linker")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -ld64")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -ld64")
+    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -ld64")
+  endif()
 
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DARWIN_C_SOURCE")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_DARWIN_C_SOURCE")
@@ -285,7 +288,7 @@ else(${perl_BIN} STREQUAL "perl_BIN-NOTFOUND")
   message(STATUS "Found perl")
 endif(${perl_BIN} STREQUAL "perl_BIN-NOTFOUND")
 
-# we need intltool-merge for darktable.desktop
+# we need intltool-merge for org.darktable.darktable.desktop
 find_program(intltool_merge_BIN intltool-merge)
 if(${intltool_merge_BIN} STREQUAL "intltool_merge_BIN-NOTFOUND")
   message(STATUS "Missing intltool-merge")
@@ -294,10 +297,10 @@ else(${intltool_merge_BIN} STREQUAL "intltool_merge_BIN-NOTFOUND")
   message(STATUS "Found intltool-merge")
 endif(${intltool_merge_BIN} STREQUAL "intltool_merge_BIN-NOTFOUND")
 
-# we need desktop-file-validate to check darktable.desktop
+# we need desktop-file-validate to check org.darktable.darktable.desktop
 find_program(desktop_file_validate_BIN desktop-file-validate)
 if(${desktop_file_validate_BIN} STREQUAL "desktop_file_validate_BIN-NOTFOUND")
-  message(STATUS "Missing desktop-file-validate, problems in darktable.desktop might go unnoticed")
+  message(STATUS "Missing desktop-file-validate, problems in org.darktable.darktable.desktop might go unnoticed")
   set(VALIDATE_DESKTOP_FILE 0)
 else(${desktop_file_validate_BIN} STREQUAL "desktop_file_validate_BIN-NOTFOUND")
   message(STATUS "Found desktop-file-validate")

@@ -250,6 +250,11 @@ static gboolean _filename_press(GtkWidget *w, GdkEventButton *e, _widgets_filena
     gtk_widget_show_all(filename->pop);
     return TRUE;
   }
+  else if(e->button == 1 && e->type == GDK_2BUTTON_PRESS)
+  {
+    gtk_entry_set_text(GTK_ENTRY(w), "");
+    _filename_changed(w, filename);
+  }
   return FALSE;
 }
 
@@ -338,7 +343,7 @@ void _filename_tree_count_func(GtkTreeViewColumn *col, GtkCellRenderer *renderer
   }
   else
   {
-    gchar *coltext = g_strdup_printf("%s (%d)", name, count);
+    gchar *coltext = g_strdup_printf("%s (%u)", name, count);
     g_object_set(renderer, "text", coltext, NULL);
     g_free(coltext);
     g_object_set(renderer, "sensitive", TRUE, NULL);

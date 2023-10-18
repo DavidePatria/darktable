@@ -16,7 +16,8 @@ scriptDir=$(dirname "$0")
 cd "$scriptDir"/
 
 # Define base variables
-dtPackageDir="package"
+buildDir="../../build/macosx"
+dtPackageDir="$buildDir"/package
 dtAppName="darktable"
 dtWorkingDir="$dtPackageDir"/"$dtAppName".app
 dtResourcesDir="$dtWorkingDir"/Contents/Resources
@@ -24,12 +25,18 @@ dtExecDir="$dtWorkingDir"/Contents/MacOS
 dtExecutables=$(echo "$dtExecDir"/darktable{,-chart,-cli,-cltest,-generate-cache,-rs-identify,-curve-tool,-noiseprofile})
 homebrewHome=$(brew --prefix)
 
+
 # Install direct and transitive dependencies
 function install_dependencies {
     local hbDependencies
 
+    absolutePath=$(dirname $(grealpath "$1"))
+
     # Get dependencies of current executable
     oToolLDependencies=$(otool -L "$1" 2>/dev/null | grep compatibility | cut -d\( -f1 | sed 's/^[[:blank:]]*//;s/[[:blank:]]*$//' | uniq)
+
+    # Handle library relative paths
+    oToolLDependencies=$(echo "$oToolLDependencies" | sed "s#@loader_path#${absolutePath}#")
 
     # Filter for homebrew dependencies
     if [[ "$oToolLDependencies" == *"$homebrewHome"* ]]; then
@@ -56,7 +63,7 @@ function install_dependencies {
                     cp -L "$hbDependency" "$dynDepTargetFile"
 
                     # Handle transitive dependencies
-                    install_dependencies "$dynDepTargetFile"
+                    install_dependencies "$hbDependency"
                 fi
             fi
         done
@@ -74,9 +81,16 @@ function reset_exec_path {
 
     # Handle libdarktable.dylib
     if [[ "$oToolLDependencies" == *"@rpath/libdarktable.dylib"* && "$1" != *"libdarktable.dylib"* ]]; then
-        echo "Resetting loader path for libdarktable.dylib of <$1>"
-        install_name_tool -rpath @loader_path/../lib/darktable @loader_path/../Resources/lib/darktable "$1"
+        # Only need to reset binaries that live outside of lib/darktable
+        oToolLoader=$(otool -l "$1" 2>/dev/null | grep '@loader_path' | cut -d\( -f1 | sed 's/^[[:blank:]]*path[[:blank:]]*//;s/[[:blank:]]*$//' )
+        if [[ "$oToolLoader" == "@loader_path/../lib/darktable" ]]; then
+            echo "Resetting loader path for libdarktable.dylib of <$1>"
+            install_name_tool -rpath @loader_path/../lib/darktable @loader_path/../Resources/lib/darktable "$1" || true
+        fi
     fi
+
+    # Handle library relative paths
+    oToolLDependencies=$(echo "$oToolLDependencies" | sed "s#@loader_path/[../]*opt/#${homebrewHome}/opt/#")
 
     # Filter for any homebrew specific paths
     if [[ "$oToolLDependencies" == *"$homebrewHome"* ]]; then
@@ -96,7 +110,15 @@ function reset_exec_path {
             echo "Resetting executable path for dependency <$hbDependency> of <$1>"
 
             # Set correct executable path
-            install_name_tool -change "$hbDependency" "@executable_path/../Resources/lib/$dynDepOrigFile" "$1"
+            install_name_tool -change "$hbDependency" "@executable_path/../Resources/lib/$dynDepOrigFile" "$1"  || true
+
+            # Check for loader path
+            oToolLoader=$(otool -L "$1" 2>/dev/null | grep '@loader_path' | grep $dynDepOrigFile | cut -d\( -f1 | sed 's/^[[:blank:]]*//;s/[[:blank:]]*$//' ) || true
+            if [[ -n "$oToolLoader" ]]; then
+                echo "Resetting loader path for dependency <$hbDependency> of <$1>"
+                oToolLoaderNew=$(echo $oToolLoader | sed "s#@loader_path/##" | sed "s#../../../../opt/.*##")
+                install_name_tool -change "$oToolLoader" "@loader_path/${oToolLoaderNew}${dynDepOrigFile}" "$1"  || true
+            fi
         done
 
     fi
@@ -113,7 +135,7 @@ function reset_exec_path {
         echo "Resetting library ID of <$1>"
 
         # Set correct library id
-        install_name_tool -id "@executable_path/../Resources/lib/$libraryOrigFile" "$1"
+        install_name_tool -id "@executable_path/../Resources/lib/$libraryOrigFile" "$1"  || true
     fi
 }
 
@@ -150,10 +172,10 @@ function install_share {
 }
 
 # Check for previous attempt and clean
-if [[ -d "$dtPackageDir" ]]; then
-    echo "Deleting directory $dtPackageDir ... "
-    chown -R "$USER" "$dtPackageDir"
-    rm -Rf "$dtPackageDir"
+if [[ -d "$dtWorkingDir" ]]; then
+    echo "Deleting directory $dtWorkingDir ... "
+    chown -R "$USER" "$dtWorkingDir"
+    rm -Rf "$dtWorkingDir"
 fi
 
 # Create basic structure
@@ -176,15 +198,15 @@ gtk-icon-theme-name = Adwaita
 " >"$dtResourcesDir"/etc/gtk-3.0/settings.ini
 
 # Add darktable executables
-cp bin/darktable{,-chart,-cli,-cltest,-generate-cache,-rs-identify} "$dtExecDir"/
+cp "$buildDir"/bin/darktable{,-chart,-cli,-cltest,-generate-cache,-rs-identify} "$dtExecDir"/
 
 # Add darktable tools if existent
-if [[ -d libexec/darktable/tools ]]; then
-    cp libexec/darktable/tools/* "$dtExecDir"/
+if [[ -d "$buildDir"/libexec/darktable/tools ]]; then
+    cp "$buildDir"/libexec/darktable/tools/* "$dtExecDir"/
 fi
 
 # Add darktable directories
-cp -R {lib,share} "$dtResourcesDir"/
+cp -R "$buildDir"/{lib,share} "$dtResourcesDir"/
 
 # Install homebrew dependencies of darktable executables
 for dtExecutable in $dtExecutables; do
@@ -194,7 +216,7 @@ for dtExecutable in $dtExecutables; do
 done
 
 # Add homebrew shared objects
-dtSharedObjDirs="gtk-3.0 libgphoto2 libgphoto2_port gdk-pixbuf-2.0 gio"
+dtSharedObjDirs="ImageMagick gtk-3.0 libgphoto2 libgphoto2_port gdk-pixbuf-2.0 gio"
 for dtSharedObj in $dtSharedObjDirs; do
     cp -LR "$homebrewHome"/lib/"$dtSharedObj" "$dtResourcesDir"/lib/
 done
@@ -266,13 +288,19 @@ done
 cp defaults.list "$dtResourcesDir"/share/applications/
 cp open.desktop "$dtResourcesDir"/share/applications/
 
+# Add gtk Mac theme (to enable default macos keyboard shortcuts)
+if [[ ! -d "$dtResourcesDir"/share/themes/Mac/gtk-3.0 ]]; then
+    mkdir -p "$dtResourcesDir"/share/themes/Mac/gtk-3.0
+fi
+cp -L "$homebrewHome"/share/themes/Mac/gtk-3.0/gtk-keys.css "$dtResourcesDir"/share/themes/Mac/gtk-3.0/
+
 # Sign app bundle
 if [ -n "$CODECERT" ]; then
     # Use certificate if one has been provided
-    find package/darktable.app/Contents/Resources/lib -type f -exec codesign --verbose --force --options runtime -i "org.darktable" -s "${CODECERT}" \{} \;
-    codesign --deep --verbose --force --options runtime -i "org.darktable" -s "${CODECERT}" package/darktable.app
+    find ${dtWorkingDir}/Contents/Resources/lib -type f -exec codesign --verbose --force --options runtime -i "org.darktable" -s "${CODECERT}" \{} \;
+    codesign --deep --verbose --force --options runtime -i "org.darktable" -s "${CODECERT}" ${dtWorkingDir}
 else
     # Use ad-hoc signing and preserve metadata
-    find package/darktable.app/Contents/Resources/lib -type f -exec codesign --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "org.darktable" -s - \{} \;
-    codesign --deep --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "org.darktable" -s - package/darktable.app
+    find ${dtWorkingDir}/Contents/Resources/lib -type f -exec codesign --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "org.darktable" -s - \{} \;
+    codesign --deep --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "org.darktable" -s - ${dtWorkingDir}
 fi

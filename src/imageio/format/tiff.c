@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2010-2021 darktable developers.
+    Copyright (C) 2010-2023 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -15,16 +15,18 @@
     You should have received a copy of the GNU General Public License
     along with darktable.  If not, see <http://www.gnu.org/licenses/>.
 */
+
 #include "bauhaus/bauhaus.h"
 #include "common/colorspaces.h"
 #include "common/darktable.h"
 #include "common/exif.h"
-#include "common/imageio.h"
-#include "common/imageio_module.h"
 #include "common/math.h"
 #include "control/conf.h"
+#include "imageio/imageio_common.h"
+#include "imageio/imageio_module.h"
 #include "imageio/format/imageio_format_api.h"
 #include "develop/pixelpipe_hb.h"
+
 #include <inttypes.h>
 #include <memory.h>
 #include <stddef.h>
@@ -64,7 +66,7 @@ typedef struct dt_imageio_tiff_gui_t
 
 int write_image(dt_imageio_module_data_t *d_tmp, const char *filename, const void *in_void,
                 dt_colorspaces_color_profile_type_t over_type, const char *over_filename,
-                void *exif, int exif_len, int imgid, int num, int total, dt_dev_pixelpipe_t *pipe,
+                void *exif, int exif_len, dt_imgid_t imgid, int num, int total, dt_dev_pixelpipe_t *pipe,
                 const gboolean export_masks)
 {
   const dt_imageio_tiff_t *d = (dt_imageio_tiff_t *)d_tmp;
@@ -163,67 +165,85 @@ int write_image(dt_imageio_module_data_t *d_tmp, const char *filename, const voi
    As there might be pipeline errors at the border we leave them alone.
    After these checks layers can be used later on.
 */
-  uint16_t layers = 3;  // default are rgb images
+  volatile uint16_t layers = 3;  // default are rgb images
 
-  if((d->global.height > 4) && (d->global.width > 4) && d->shortfile)
+  if(d->shortfile && (d->global.height > 4) && (d->global.width > 4))
   {
     layers = 1;    // let's now assume a grayscale
     if(d->bpp == 32 || (d->bpp == 16 && d->pixelformat))
     {
-      for(int y = 1; y < d->global.height-1; y++)
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+  dt_omp_firstprivate(in_void, d) \
+  shared(layers) \
+  schedule(simd:static) \
+  collapse(2)
+#endif
+      for(int y = 1; y < d->global.height - 1; ++y)
       {
-        float *in = (float *)in_void + (size_t)4 * y * d->global.width;
-        for(int x = 1; x < d->global.width-1; x++, in += 4)
+        for(int x = 1; x < d->global.width - 1; ++x)
         {
-          if((fabsf(fmaxf(in[0], 0.001f) / fmaxf(in[1], 0.001f)) > 1.01f) ||
-             (fabsf(fmaxf(in[0], 0.001f) / fmaxf(in[2], 0.001f)) > 1.01f) ||
-             (fabsf(fmaxf(in[1], 0.001f) / fmaxf(in[2], 0.001f)) > 1.01f))
+          if(layers == 3) continue;
+          float *in = (float *)in_void + (size_t)(4 * (y * d->global.width + x));
+          if((fabsf(fmaxf(in[0], 0.001f) / fmaxf(in[1], 0.001f)) > 1.01f)
+             || (fabsf(fmaxf(in[0], 0.001f) / fmaxf(in[2], 0.001f)) > 1.01f)
+             || (fabsf(fmaxf(in[1], 0.001f) / fmaxf(in[2], 0.001f)) > 1.01f))
           {
             layers = 3;
-            goto checkdone;
           }
         }
       }
     }
     else if(d->bpp == 16 && !d->pixelformat)
     {
-      for(int y = 1; y < d->global.height-1; y++)
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+  dt_omp_firstprivate(in_void, d) \
+  shared(layers) \
+  schedule(simd:static) \
+  collapse(2)
+#endif
+      for(int y = 1; y < d->global.height - 1; ++y)
       {
-        uint16_t *in = (uint16_t *)in_void + (size_t)4 * y * d->global.width;
-        for(int x = 1; x < d->global.width-1; x++, in += 4)
+        for(int x = 1; x < d->global.width - 1; ++x)
         {
-          if((abs(in[0] - in[1]) > 100) ||
-             (abs(in[0] - in[2]) > 100) ||
-             (abs(in[1] - in[2]) > 100))
+          if(layers == 3) continue;
+          uint16_t *in = (uint16_t *)in_void + (size_t)(4 * (y * d->global.width + x));
+          if((abs((int)in[0] - (int)in[1]) > 165) || (abs((int)in[0] - (int)in[2]) > 165)
+             || (abs((int)in[1] - (int)in[2]) > 165))
           {
             layers = 3;
-            goto checkdone;
           }
         }
       }
     }
     else // 8bpp
     {
-      for(int y = 1; y < d->global.height-1; y++)
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+  dt_omp_firstprivate(in_void, d) \
+  shared(layers) \
+  schedule(simd:static) \
+  collapse(2)
+#endif
+      for(int y = 1; y < d->global.height - 1; ++y)
       {
-        uint8_t *in = (uint8_t *)in_void + (size_t)4 * y * d->global.width;
-        for(int x = 1; x < d->global.width-1; x++, in += 4)
+        for(int x = 1; x < d->global.width - 1; ++x)
         {
-          if((abs(in[0] - in[1]) > 5) ||
-             (abs(in[0] - in[2]) > 5) ||
-             (abs(in[1] - in[2]) > 5))
+          if(layers == 3) continue;
+          uint8_t *in = (uint8_t *)in_void + (size_t)(4 * (y * d->global.width + x));
+          if((abs((int)in[0] - (int)in[1]) > 2) || (abs((int)in[0] - (int)in[2]) > 2)
+             || (abs((int)in[1] - (int)in[2]) > 2))
           {
             layers = 3;
-            goto checkdone;
           }
         }
       }
     }
   }
 
-  checkdone:
-  if(layers == 1)
-    dt_control_log(_("will export as a grayscale image"));
+  if(d->shortfile && layers == 3)
+    dt_control_log(_("not a B&W image, will not export as grayscale"));
 
   TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, layers);
   TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, (uint16_t)d->bpp);
@@ -384,7 +404,7 @@ int write_image(dt_imageio_module_data_t *d_tmp, const char *filename, const voi
       while(g_hash_table_iter_next(&rm_iter, &key, &value))
       {
         if(free_mask) dt_free_align(raster_mask);
-        raster_mask = dt_dev_get_raster_mask(pipe, piece->module, GPOINTER_TO_INT(key), NULL, &free_mask);
+        raster_mask = dt_dev_get_raster_mask(piece, piece->module, GPOINTER_TO_INT(key), NULL, &free_mask);
 
 
         size_t w = d->global.width, h = d->global.height;
@@ -501,7 +521,7 @@ int write_image(dt_imageio_module_data_t *d_tmp, const char *filename, const voi
             for(int x = 0; x < w; x++, out += layers)
             {
               for(int c = 0; c < layers; c++)
-                out[c] = CLIP(in[x]) * 65535.0f + 0.5f;
+                out[c] = (uint16_t)roundf(CLIP(in[x]) * 65535.0f);
             }
 
             if(TIFFWriteScanline(tif, rowdata, y, 0) == -1)
@@ -521,7 +541,7 @@ int write_image(dt_imageio_module_data_t *d_tmp, const char *filename, const voi
             for(int x = 0; x < w; x++, out += layers)
             {
               for(int c = 0; c < layers; c++)
-                out[c] = CLIP(in[x]) * 255.0f + 0.5f;
+                out[c] = (uint8_t)roundf(CLIP(in[x]) * 255.0f);
             }
 
             if(TIFFWriteScanline(tif, rowdata, y, 0) == -1)
@@ -583,34 +603,30 @@ exit:
   return rc;
 }
 
-#if 0
-int dt_imageio_tiff_read_header(const char *filename, dt_imageio_tiff_t *tiff)
-{
-  tiff->handle = TIFFOpen(filename, "rl");
-  if( tiff->handle )
-  {
-    TIFFGetField(tiff->handle, TIFFTAG_IMAGEWIDTH, &tiff->width);
-    TIFFGetField(tiff->handle, TIFFTAG_IMAGELENGTH, &tiff->height);
-  }
-  return 1;
-}
-
-int dt_imageio_tiff_read(dt_imageio_tiff_t *tiff, uint8_t *out)
-{
-  TIFFClose(tiff->handle);
-  return 1;
-}
-#endif
-
 size_t params_size(dt_imageio_module_format_t *self)
 {
   return sizeof(dt_imageio_tiff_t) - sizeof(TIFF *);
 }
 
-void *legacy_params(dt_imageio_module_format_t *self, const void *const old_params, const size_t old_params_size,
-                    const int old_version, const int new_version, size_t *new_size)
+void *legacy_params(dt_imageio_module_format_t *self,
+                    const void *const old_params,
+                    const size_t old_params_size,
+                    const int old_version,
+                    int *new_version,
+                    size_t *new_size)
 {
-  if(old_version == 1 && new_version == 4)
+  typedef struct dt_imageio_tiff_v4_t
+  {
+    dt_imageio_module_data_t global;
+    int bpp;
+    int pixelformat;
+    int compress;
+    int compresslevel;
+    int shortfile;
+    TIFF *handle;
+  } dt_imageio_tiff_v4_t;
+
+  if(old_version == 1)
   {
     typedef struct dt_imageio_tiff_v1_t
     {
@@ -623,7 +639,7 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
     } dt_imageio_tiff_v1_t;
 
     const dt_imageio_tiff_v1_t *o = (dt_imageio_tiff_v1_t *)old_params;
-    dt_imageio_tiff_t *n = (dt_imageio_tiff_t *)calloc(1, sizeof(dt_imageio_tiff_t));
+    dt_imageio_tiff_v4_t *n = (dt_imageio_tiff_v4_t *)calloc(1, sizeof(dt_imageio_tiff_v4_t));
 
     n->global.max_width = o->max_width;
     n->global.max_height = o->max_height;
@@ -637,10 +653,12 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
     n->compresslevel = 6;
     n->shortfile = 0;
     n->handle = o->handle;
-    *new_size = self->params_size(self);
+
+    *new_version = 4;
+    *new_size = sizeof(dt_imageio_tiff_v4_t) - sizeof(TIFF *);
     return n;
   }
-  else if(old_version == 2 && new_version == 4)
+  else if(old_version == 2)
   {
     typedef struct dt_imageio_tiff_v2_t
     {
@@ -654,7 +672,7 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
     } dt_imageio_tiff_v2_t;
 
     const dt_imageio_tiff_v2_t *o = (dt_imageio_tiff_v2_t *)old_params;
-    dt_imageio_tiff_t *n = (dt_imageio_tiff_t *)calloc(1, sizeof(dt_imageio_tiff_t));
+    dt_imageio_tiff_v4_t *n = (dt_imageio_tiff_v4_t *)calloc(1, sizeof(dt_imageio_tiff_v4_t));
 
     n->global.max_width = o->max_width;
     n->global.max_height = o->max_height;
@@ -668,10 +686,12 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
     n->compresslevel = 6;
     n->shortfile = 0;
     n->handle = o->handle;
-    *new_size = self->params_size(self);
+
+    *new_version = 4;
+    *new_size = sizeof(dt_imageio_tiff_v4_t) - sizeof(TIFF *);
     return n;
   }
-  else if(old_version == 3 && new_version == 4)
+  else if(old_version == 3)
   {
     typedef struct dt_imageio_tiff_v3_t
     {
@@ -684,7 +704,7 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
     } dt_imageio_tiff_v3_t;
 
     const dt_imageio_tiff_v3_t *o = (dt_imageio_tiff_v3_t *)old_params;
-    dt_imageio_tiff_t *n = (dt_imageio_tiff_t *)calloc(1, sizeof(dt_imageio_tiff_t));
+    dt_imageio_tiff_v4_t *n = (dt_imageio_tiff_v4_t *)calloc(1, sizeof(dt_imageio_tiff_v4_t));
 
     n->global.max_width = o->global.max_width;
     n->global.max_height = o->global.max_height;
@@ -706,9 +726,29 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
     }
     n->shortfile = o->shortfile;
     n->handle = o->handle;
-    *new_size = self->params_size(self);
+
+    *new_version = 4;
+    *new_size = sizeof(dt_imageio_tiff_v4_t) - sizeof(TIFF *);
     return n;
   }
+
+  // incremental update supported:
+  /*
+  typedef struct dt_imageio_tiff_v5_t
+  {
+    ...
+  } dt_imageio_tiff_v5_t;
+
+  if(old_version == 4)
+  {
+    // let's update from 4 to 5
+
+    ...
+    *new_size = sizeof(dt_imageio_tiff_v5_t) - sizeof(TIFF *);
+    *new_version = 5;
+    return n;
+  }
+  */
   return NULL;
 }
 
@@ -726,7 +766,7 @@ void *get_params(dt_imageio_module_format_t *self)
 #endif
   d->compress = dt_conf_get_int("plugins/imageio/format/tiff/compress");
   d->compresslevel = dt_conf_get_int("plugins/imageio/format/tiff/compresslevel");
-  d->shortfile = dt_conf_get_int("plugins/imageio/format/tiff/shortfile");
+  d->shortfile = dt_conf_get_bool("plugins/imageio/format/tiff/shortfile");
 
   return d;
 }
@@ -810,7 +850,7 @@ static void pixelformat_combobox_changed(GtkWidget *widget, gpointer user_data)
 static void shortfile_combobox_changed(GtkWidget *widget, gpointer user_data)
 {
   const int mode = dt_bauhaus_combobox_get(widget);
-  dt_conf_set_int("plugins/imageio/format/tiff/shortfile", mode);
+  dt_conf_set_bool("plugins/imageio/format/tiff/shortfile", mode);
 }
 
 static void compress_combobox_changed(GtkWidget *widget, dt_imageio_tiff_gui_t *gui)
@@ -852,7 +892,7 @@ void gui_init(dt_imageio_module_format_t *self)
 #endif
   const int compress = dt_conf_get_int("plugins/imageio/format/tiff/compress");
   const int compresslevel = dt_conf_get_int("plugins/imageio/format/tiff/compresslevel");
-  const int shortmode = dt_conf_get_int("plugins/imageio/format/tiff/shortfile");
+  const int shortmode = dt_conf_get_bool("plugins/imageio/format/tiff/shortfile");
 
   self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
@@ -901,10 +941,11 @@ void gui_init(dt_imageio_module_format_t *self)
   gtk_widget_set_no_show_all(gui->compresslevel, TRUE);
 
   // shortfile option combo box
-  DT_BAUHAUS_COMBOBOX_NEW_FULL(gui->shortfiles, self, NULL, N_("b&w image"), NULL, shortmode,
-                               shortfile_combobox_changed, self, N_("write rgb colors"), N_("write grayscale"));
+  DT_BAUHAUS_COMBOBOX_NEW_FULL(gui->shortfiles, self, NULL, N_("B&W as grayscale"),
+                               _("saving as grayscale will reduce the size for black & white images"), shortmode,
+                               shortfile_combobox_changed, self, N_("no"), N_("yes"));
   dt_bauhaus_combobox_set_default(gui->shortfiles,
-                                  dt_confgen_get_int("plugins/imageio/format/tiff/shortfile", DT_DEFAULT));
+                                  dt_confgen_get_bool("plugins/imageio/format/tiff/shortfile", DT_DEFAULT));
   gtk_box_pack_start(GTK_BOX(self->widget), gui->shortfiles, TRUE, TRUE, 0);
 }
 
@@ -928,7 +969,7 @@ void gui_reset(dt_imageio_module_format_t *self)
   dt_bauhaus_combobox_set(gui->compress, dt_confgen_get_int("plugins/imageio/format/tiff/compress", DT_DEFAULT));
   dt_bauhaus_slider_set(gui->compresslevel,
                         dt_confgen_get_int("plugins/imageio/format/tiff/compresslevel", DT_DEFAULT));
-  dt_bauhaus_combobox_set(gui->shortfiles, dt_confgen_get_int("plugins/imageio/format/tiff/shortfile", DT_DEFAULT));
+  dt_bauhaus_combobox_set(gui->shortfiles, dt_confgen_get_bool("plugins/imageio/format/tiff/shortfile", DT_DEFAULT));
 }
 
 int flags(dt_imageio_module_data_t *data)

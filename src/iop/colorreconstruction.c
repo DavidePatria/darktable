@@ -1,6 +1,6 @@
 /*
   This file is part of darktable,
-  Copyright (C) 2015-2021 darktable developers.
+  Copyright (C) 2015-2023 darktable developers.
 
   darktable is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -53,21 +53,6 @@ typedef enum dt_iop_colorreconstruct_precedence_t
   COLORRECONSTRUCT_PRECEDENCE_CHROMA, // $DESCRIPTION: "saturated colors" use chromaticy as weighting factor -> prefers saturated colors
   COLORRECONSTRUCT_PRECEDENCE_HUE     // $DESCRIPTION: "hue" use a specific hue as weighting factor
 } dt_iop_colorreconstruct_precedence_t;
-
-typedef struct dt_iop_colorreconstruct_params1_t
-{
-  float threshold;
-  float spatial;
-  float range;
-} dt_iop_colorreconstruct_params1_t;
-
-typedef struct dt_iop_colorreconstruct_params2_t
-{
-  float threshold;
-  float spatial;
-  float range;
-  dt_iop_colorreconstruct_precedence_t precedence;
-} dt_iop_colorreconstruct_params2_t;
 
 typedef struct dt_iop_colorreconstruct_params_t
 {
@@ -150,34 +135,74 @@ int default_group()
   return IOP_GROUP_BASIC | IOP_GROUP_TECHNICAL;
 }
 
-int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
+dt_iop_colorspace_type_t default_colorspace(dt_iop_module_t *self,
+                                            dt_dev_pixelpipe_t *pipe,
+                                            dt_dev_pixelpipe_iop_t *piece)
 {
   return IOP_CS_LAB;
 }
 
-int legacy_params(dt_iop_module_t *self, const void *const old_params, const int old_version,
-                  void *new_params, const int new_version)
+int legacy_params(dt_iop_module_t *self,
+                  const void *const old_params,
+                  const int old_version,
+                  void **new_params,
+                  int32_t *new_params_size,
+                  int *new_version)
 {
-  if(old_version == 1 && new_version == 3)
+  typedef struct dt_iop_colorreconstruct_params_v3_t
   {
-    const dt_iop_colorreconstruct_params1_t *old = old_params;
-    dt_iop_colorreconstruct_params_t *new = new_params;
+    float threshold;
+    float spatial;
+    float range;
+    float hue;
+    dt_iop_colorreconstruct_precedence_t precedence;
+  } dt_iop_colorreconstruct_params_v3_t;
+
+  if(old_version == 1)
+  {
+    typedef struct dt_iop_colorreconstruct_params_v1_t
+    {
+      float threshold;
+      float spatial;
+      float range;
+    } dt_iop_colorreconstruct_params_v1_t;
+
+    const dt_iop_colorreconstruct_params_v1_t *old = old_params;
+    dt_iop_colorreconstruct_params_v3_t *new =
+      (dt_iop_colorreconstruct_params_v3_t *)malloc(sizeof(dt_iop_colorreconstruct_params_v3_t));
     new->threshold = old->threshold;
     new->spatial = old->spatial;
     new->range = old->range;
     new->precedence = COLORRECONSTRUCT_PRECEDENCE_NONE;
     new->hue = 0.66f;
+
+    *new_params = new;
+    *new_params_size = sizeof(dt_iop_colorreconstruct_params_v3_t);
+    *new_version = 3;
     return 0;
   }
-  else if(old_version == 2 && new_version == 3)
+  else if(old_version == 2)
   {
-    const dt_iop_colorreconstruct_params2_t *old = old_params;
-    dt_iop_colorreconstruct_params_t *new = new_params;
+    typedef struct dt_iop_colorreconstruct_params_v2_t
+    {
+      float threshold;
+      float spatial;
+      float range;
+      dt_iop_colorreconstruct_precedence_t precedence;
+    } dt_iop_colorreconstruct_params_v2_t;
+
+    const dt_iop_colorreconstruct_params_v2_t *old = old_params;
+    dt_iop_colorreconstruct_params_v3_t *new =
+      (dt_iop_colorreconstruct_params_v3_t *)malloc(sizeof(dt_iop_colorreconstruct_params_v3_t));
     new->threshold = old->threshold;
     new->spatial = old->spatial;
     new->range = old->range;
     new->precedence = old->precedence;
     new->hue = 0.66f;
+
+    *new_params = new;
+    *new_params_size = sizeof(dt_iop_colorreconstruct_params_v3_t);
+    *new_version = 3;
     return 0;
   }
   return 1;
@@ -200,11 +225,7 @@ static inline float hue_conversion(const float HSL_Hue)
   dt_aligned_pixel_t Lab = { 0 };
 
   hsl2rgb(rgb, HSL_Hue, 1.0f, 0.5f);
-
-  XYZ[0] = (rgb[0] * 0.4360747f) + (rgb[1] * 0.3850649f) + (rgb[2] * 0.1430804f);
-  XYZ[1] = (rgb[0] * 0.2225045f) + (rgb[1] * 0.7168786f) + (rgb[2] * 0.0606169f);
-  XYZ[2] = (rgb[0] * 0.0139322f) + (rgb[1] * 0.0971045f) + (rgb[2] * 0.7141733f);
-
+  dt_Rec709_to_XYZ_D50(rgb, XYZ);
   dt_XYZ_to_Lab(XYZ, Lab);
 
   // Hue from LCH color space in [-pi, +pi] interval
@@ -251,7 +272,7 @@ static dt_iop_colorreconstruct_bilateral_t *dt_iop_colorreconstruct_bilateral_in
   dt_iop_colorreconstruct_bilateral_t *b = (dt_iop_colorreconstruct_bilateral_t *)malloc(sizeof(dt_iop_colorreconstruct_bilateral_t));
   if(!b)
   {
-    fprintf(stderr, "[color reconstruction] not able to allocate buffer (a)\n");
+    dt_print(DT_DEBUG_ALWAYS, "[color reconstruction] not able to allocate buffer (a)\n");
     return NULL;
   }
   float _x = roundf(roi->width / sigma_s);
@@ -270,14 +291,14 @@ static dt_iop_colorreconstruct_bilateral_t *dt_iop_colorreconstruct_bilateral_in
   b->buf = dt_alloc_align(64, sizeof(dt_iop_colorreconstruct_Lab_t) * b->size_x * b->size_y * b->size_z);
   if(!b->buf)
   {
-    fprintf(stderr, "[color reconstruction] not able to allocate buffer (b)\n");
+    dt_print(DT_DEBUG_ALWAYS, "[color reconstruction] not able to allocate buffer (b)\n");
     dt_iop_colorreconstruct_bilateral_free(b);
     return NULL;
   }
 
   memset(b->buf, 0, sizeof(dt_iop_colorreconstruct_Lab_t) * b->size_x * b->size_y * b->size_z);
 #if 0
-  fprintf(stderr, "[bilateral] created grid [%d %d %d]"
+  dt_print(DT_DEBUG_ALWAYS, "[bilateral] created grid [%d %d %d]"
           " with sigma (%f %f) (%f %f)\n", b->size_x, b->size_y, b->size_z,
           b->sigma_s, sigma_s, b->sigma_r, sigma_r);
 #endif
@@ -291,7 +312,7 @@ static dt_iop_colorreconstruct_bilateral_frozen_t *dt_iop_colorreconstruct_bilat
   dt_iop_colorreconstruct_bilateral_frozen_t *bf = (dt_iop_colorreconstruct_bilateral_frozen_t *)malloc(sizeof(dt_iop_colorreconstruct_bilateral_frozen_t));
   if(!bf)
   {
-    fprintf(stderr, "[color reconstruction] not able to allocate buffer (c)\n");
+    dt_print(DT_DEBUG_ALWAYS, "[color reconstruction] not able to allocate buffer (c)\n");
     return NULL;
   }
 
@@ -312,7 +333,7 @@ static dt_iop_colorreconstruct_bilateral_frozen_t *dt_iop_colorreconstruct_bilat
   }
   else
   {
-    fprintf(stderr, "[color reconstruction] not able to allocate buffer (d)\n");
+    dt_print(DT_DEBUG_ALWAYS, "[color reconstruction] not able to allocate buffer (d)\n");
     dt_iop_colorreconstruct_bilateral_dump(bf);
     return NULL;
   }
@@ -327,7 +348,7 @@ static dt_iop_colorreconstruct_bilateral_t *dt_iop_colorreconstruct_bilateral_th
   dt_iop_colorreconstruct_bilateral_t *b = (dt_iop_colorreconstruct_bilateral_t *)malloc(sizeof(dt_iop_colorreconstruct_bilateral_t));
   if(!b)
   {
-    fprintf(stderr, "[color reconstruction] not able to allocate buffer (e)\n");
+    dt_print(DT_DEBUG_ALWAYS, "[color reconstruction] not able to allocate buffer (e)\n");
     return NULL;
   }
 
@@ -348,7 +369,7 @@ static dt_iop_colorreconstruct_bilateral_t *dt_iop_colorreconstruct_bilateral_th
   }
   else
   {
-    fprintf(stderr, "[color reconstruction] not able to allocate buffer (f)\n");
+    dt_print(DT_DEBUG_ALWAYS, "[color reconstruction] not able to allocate buffer (f)\n");
     dt_iop_colorreconstruct_bilateral_free(b);
     return NULL;
   }
@@ -619,14 +640,8 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
      && g
      && (piece->pipe->type & DT_DEV_PIXELPIPE_FULL))
   {
-    // check how far we are zoomed-in
-    dt_dev_zoom_t zoom = dt_control_get_dev_zoom();
-    int closeup = dt_control_get_dev_closeup();
-    const float min_scale = dt_dev_get_zoom_scale(self->dev, DT_ZOOM_FIT, 1<<closeup, 0);
-    const float cur_scale = dt_dev_get_zoom_scale(self->dev, zoom, 1<<closeup, 0);
-
     // if we are zoomed in more than just a little bit, we try to use the canned grid of the preview pipeline
-    if(cur_scale > 1.05f * min_scale)
+    if(dt_dev_get_zoomed_in() > 1.05f)
     {
       if(!dt_dev_sync_pixelpipe_hash(self->dev, piece->pipe, self->iop_order, DT_DEV_TRANSFORM_DIR_BACK_INCL, &self->gui_lock, &g->hash))
         dt_control_log(_("inconsistent output"));
@@ -787,7 +802,7 @@ static dt_iop_colorreconstruct_bilateral_cl_t *dt_iop_colorreconstruct_bilateral
   }
 
 #if 0
-  fprintf(stderr, "[bilateral] created grid [%d %d %d]"
+  dt_print(DT_DEBUG_ALWAYS, "[bilateral] created grid [%d %d %d]"
           " with sigma (%f %f) (%f %f)\n", b->size_x, b->size_y, b->size_z,
           b->sigma_s, sigma_s, b->sigma_r, sigma_r);
 #endif
@@ -1031,14 +1046,8 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
      && g
      && (piece->pipe->type & DT_DEV_PIXELPIPE_FULL))
   {
-    // check how far we are zoomed-in
-    dt_dev_zoom_t zoom = dt_control_get_dev_zoom();
-    int closeup = dt_control_get_dev_closeup();
-    const float min_scale = dt_dev_get_zoom_scale(self->dev, DT_ZOOM_FIT, 1<<closeup, 0);
-    const float cur_scale = dt_dev_get_zoom_scale(self->dev, zoom, 1<<closeup, 0);
-
     // if we are zoomed in more than just a little bit, we try to use the canned grid of the preview pipeline
-    if(cur_scale > 1.05f * min_scale)
+    if(dt_dev_get_zoomed_in() > 1.05f)
     {
       if(!dt_dev_sync_pixelpipe_hash(self->dev, piece->pipe, self->iop_order, DT_DEV_TRANSFORM_DIR_BACK_INCL, &self->gui_lock, &g->hash))
         dt_control_log(_("inconsistent output"));
@@ -1077,13 +1086,9 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     dt_iop_gui_leave_critical_section(self);
   }
 
-  dt_iop_colorreconstruct_bilateral_free_cl(b);
-  return TRUE;
-
 error:
   dt_iop_colorreconstruct_bilateral_free_cl(b);
-  dt_print(DT_DEBUG_OPENCL, "[opencl_colorreconstruction] couldn't enqueue kernel! %s\n", cl_errstr(err));
-  return FALSE;
+  return err;
 }
 #endif
 
@@ -1284,4 +1289,3 @@ void gui_cleanup(struct dt_iop_module_t *self)
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

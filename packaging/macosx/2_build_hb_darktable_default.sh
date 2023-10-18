@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Script to build and install darktable with default configuration
+# Script to build darktable with default configuration
 #
 
 # Exit in case of error
@@ -13,13 +13,20 @@ cd "$scriptDir"/
 scriptDir=$(pwd)
 
 # Set variables
-buildDir="../../build"
+buildDir="${scriptDir}/../../build"
+installDir="${buildDir}/macosx"
+
+# Options
+options=" \
+    -DUSE_GRAPHICSMAGICK=OFF \
+    -DUSE_IMAGEMAGICK=ON \
+"
 
 # Check for previous attempt and clean
 if [[ -d "$buildDir" ]]; then
     echo "Deleting directory $buildDir ... "
-    rm -R "$buildDir"
+    rm -rf "$buildDir"
 fi
 
-# Clean build and install darktable here
-../../build.sh --install --build-type Release --prefix "$scriptDir"
+# Clean build here
+../../build.sh --install --build-generator Ninja --build-type Release --prefix "$installDir" -- $options

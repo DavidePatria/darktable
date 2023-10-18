@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2013-2022 darktable developers.
+    Copyright (C) 2013-2023 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,9 +22,9 @@
 #include "bauhaus/bauhaus.h"
 #include "common/darktable.h"
 #include "common/exif.h"
-#include "common/imageio.h"
-#include "common/imageio_module.h"
 #include "control/conf.h"
+#include "imageio/imageio_common.h"
+#include "imageio/imageio_module.h"
 #include "imageio/format/imageio_format_api.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,7 +117,7 @@ void cleanup(dt_imageio_module_format_t *self)
 
 int write_image(dt_imageio_module_data_t *webp, const char *filename, const void *in_tmp,
                 dt_colorspaces_color_profile_type_t over_type, const char *over_filename,
-                void *exif, int exif_len, int imgid, int num, int total, struct dt_dev_pixelpipe_t *pipe,
+                void *exif, int exif_len, dt_imgid_t imgid, int num, int total, struct dt_dev_pixelpipe_t *pipe,
                 const gboolean export_masks)
 {
   int res = 1;
@@ -152,7 +152,7 @@ int write_image(dt_imageio_module_data_t *webp, const char *filename, const void
   config.partition_limit = 70;
   if(!WebPValidateConfig(&config))
   {
-    fprintf(stderr, "[webp export] error validating encoder configuration\n");
+    dt_print(DT_DEBUG_ALWAYS, "[webp export] error validating encoder configuration\n");
     goto error;
   }
 
@@ -171,13 +171,13 @@ int write_image(dt_imageio_module_data_t *webp, const char *filename, const void
       err = WebPMuxSetChunk(mux, "ICCP", &icc_profile, 0);
       if(err != WEBP_MUX_OK)
       {
-        fprintf(stderr, "[webp export] error adding ICC profile to WebP stream\n");
+        dt_print(DT_DEBUG_ALWAYS, "[webp export] error adding ICC profile to WebP stream\n");
         goto error;
       }
     }
     else
     {
-      fprintf(stderr, "[webp export] error allocating ICC profile buffer\n");
+      dt_print(DT_DEBUG_ALWAYS, "[webp export] error allocating ICC profile buffer\n");
       goto error;
     }
   }
@@ -203,7 +203,7 @@ int write_image(dt_imageio_module_data_t *webp, const char *filename, const void
 
   if(!WebPEncode(&config, &pic))
   {
-    fprintf(stderr, "[webp export] error (%d) during encoding: %s\n", pic.error_code,
+    dt_print(DT_DEBUG_ALWAYS, "[webp export] error (%d) during encoding: %s\n", pic.error_code,
             get_error_str(pic.error_code));
     goto error;
   }
@@ -213,7 +213,7 @@ int write_image(dt_imageio_module_data_t *webp, const char *filename, const void
   err = WebPMuxSetImage(mux, &bitstream, 0);
   if(err != WEBP_MUX_OK)
   {
-    fprintf(stderr, "[webp export] error adding image to WebP stream\n");
+    dt_print(DT_DEBUG_ALWAYS, "[webp export] error adding image to WebP stream\n");
     goto error;
   }
 
@@ -221,19 +221,19 @@ int write_image(dt_imageio_module_data_t *webp, const char *filename, const void
   err = WebPMuxAssemble(mux, &assembled_data);
   if(err != WEBP_MUX_OK)
   {
-    fprintf(stderr, "[webp export] error assembling the WebP file\n");
+    dt_print(DT_DEBUG_ALWAYS, "[webp export] error assembling the WebP file\n");
     goto error;
   }
 
   out = g_fopen(filename, "w+b");
   if(!out)
   {
-    fprintf(stderr, "[webp export] error creating file %s\n", filename);
+    dt_print(DT_DEBUG_ALWAYS, "[webp export] error creating file %s\n", filename);
     goto error;
   }
   if(fwrite(assembled_data.bytes, assembled_data.size, 1, out) != 1)
   {
-    fprintf(stderr, "[webp export] error writing %zu bytes to file %s\n", assembled_data.size, filename);
+    dt_print(DT_DEBUG_ALWAYS, "[webp export] error writing %zu bytes to file %s\n", assembled_data.size, filename);
     goto error;
   }
 
@@ -255,11 +255,22 @@ size_t params_size(dt_imageio_module_format_t *self)
   return sizeof(dt_imageio_webp_t);
 }
 
-void *legacy_params(dt_imageio_module_format_t *self, const void *const old_params,
-                    const size_t old_params_size, const int old_version, const int new_version,
+void *legacy_params(dt_imageio_module_format_t *self,
+                    const void *const old_params,
+                    const size_t old_params_size,
+                    const int old_version,
+                    int *new_version,
                     size_t *new_size)
 {
-  if(old_version == 1 && new_version == 2)
+  typedef struct dt_imageio_webp_v2_t
+  {
+    dt_imageio_module_data_t global;
+    int comp_type;
+    int quality;
+    int hint;
+  } dt_imageio_webp_v2_t;
+
+  if(old_version == 1)
   {
     typedef struct dt_imageio_webp_v1_t
     {
@@ -271,8 +282,8 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
       int hint;
     } dt_imageio_webp_v1_t;
 
-    dt_imageio_webp_v1_t *o = (dt_imageio_webp_v1_t *)old_params;
-    dt_imageio_webp_t *n = (dt_imageio_webp_t *)malloc(sizeof(dt_imageio_webp_t));
+    const dt_imageio_webp_v1_t *o = (dt_imageio_webp_v1_t *)old_params;
+    dt_imageio_webp_v2_t *n = (dt_imageio_webp_v2_t *)malloc(sizeof(dt_imageio_webp_v2_t));
 
     n->global.max_width = o->max_width;
     n->global.max_height = o->max_height;
@@ -283,9 +294,29 @@ void *legacy_params(dt_imageio_module_format_t *self, const void *const old_para
     n->comp_type = o->comp_type;
     n->quality = o->quality;
     n->hint = o->hint;
-    *new_size = self->params_size(self);
+
+    *new_version = 2;
+    *new_size = sizeof(dt_imageio_webp_v2_t);
     return n;
   }
+
+  // incremental update supported:
+  /*
+  typedef struct dt_imageio_webp_v3_t
+  {
+    ...
+  } dt_imageio_webp_v3_t;
+
+  if(old_version == 2)
+  {
+    // let's update from 2 to 3
+
+    ...
+    *new_size = sizeof(dt_imageio_webp_v3_t);
+    *new_version = 3;
+    return n;
+  }
+  */
   return NULL;
 }
 
@@ -380,7 +411,7 @@ void gui_init(dt_imageio_module_format_t *self)
 
   self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
-  DT_BAUHAUS_COMBOBOX_NEW_FULL(gui->compression, self, NULL, N_("compression type"), NULL,
+  DT_BAUHAUS_COMBOBOX_NEW_FULL(gui->compression, self, NULL, N_("compression"), NULL,
                                comp_type, compression_changed, self,
                                N_("lossy"), N_("lossless"));
   gtk_box_pack_start(GTK_BOX(self->widget), gui->compression, TRUE, TRUE, 0);
@@ -392,12 +423,10 @@ void gui_init(dt_imageio_module_format_t *self)
                                                   dt_confgen_get_int("plugins/imageio/format/webp/quality", DT_DEFAULT),
                                                   0);
   dt_bauhaus_widget_set_label(gui->quality, NULL, N_("quality"));
-  dt_bauhaus_slider_set_default(gui->quality, dt_confgen_get_int("plugins/imageio/format/webp/quality", DT_DEFAULT));
-  dt_bauhaus_slider_set_format(gui->quality, "%");
   gtk_widget_set_tooltip_text(gui->quality, _("for lossy, 0 gives the smallest size and 100 the best quality.\n"
                                               "for lossless, 0 is the fastest but gives larger files compared\n"
                                               "to the slowest 100."));
-  if(quality >= 0 && quality <= 100) dt_bauhaus_slider_set(gui->quality, quality);
+  dt_bauhaus_slider_set(gui->quality, quality);
   gtk_box_pack_start(GTK_BOX(self->widget), gui->quality, TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(gui->quality), "value-changed", G_CALLBACK(quality_changed), NULL);
 

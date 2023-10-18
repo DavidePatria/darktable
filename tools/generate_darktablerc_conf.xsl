@@ -18,6 +18,8 @@
 
 #include "control/conf.h"
 
+#define WRAP_TRANSLATION(text)
+
 static void _insert_default(const char *name, const char *value)
 {
   dt_confgen_value_t *item = (dt_confgen_value_t *)g_hash_table_lookup(darktable.conf->x_confgen, name);
@@ -133,8 +135,22 @@ static void _insert_longdescription(const char *name, const char *value)
   item->longdesc = g_strdup(value);
 }
 
+static void _free_confgen_value(void *value)
+{
+  dt_confgen_value_t *s = (dt_confgen_value_t *)value;
+  g_free(s->def);
+  g_free(s->min);
+  g_free(s->max);
+  g_free(s->enum_values);
+  g_free(s->shortdesc);
+  g_free(s->longdesc);
+  g_free(s);
+}
+
 void dt_confgen_init()
 {
+   darktable.conf->x_confgen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, _free_confgen_value);
+
 ]]></xsl:text>
 
   <xsl:for-each select="./dtconfiglist/dtconfig">
@@ -187,13 +203,15 @@ void dt_confgen_init()
 
   <xsl:choose>
     <xsl:when test="../type = 'dir'">
-      <xsl:text>   gchar *default_path = dt_conf_expand_default_dir("</xsl:text><xsl:apply-templates select="../default"/>
-	  <xsl:text>");</xsl:text>
-	  <xsl:text>&#xA;</xsl:text>
-      <xsl:text>   _insert_default("</xsl:text><xsl:value-of select="../name" />
-	  <xsl:text>", default_path);</xsl:text>
-	  <xsl:text>&#xA;</xsl:text>
-	  <xsl:text>   g_free(default_path);&#xA;</xsl:text>
+      <xsl:text>   {&#xA;</xsl:text>
+      <xsl:text>      gchar *default_path = dt_conf_expand_default_dir("</xsl:text><xsl:apply-templates select="../default"/>
+      <xsl:text>");</xsl:text>
+      <xsl:text>&#xA;</xsl:text>
+      <xsl:text>      _insert_default("</xsl:text><xsl:value-of select="../name" />
+      <xsl:text>", default_path);</xsl:text>
+      <xsl:text>&#xA;</xsl:text>
+      <xsl:text>      g_free(default_path);&#xA;</xsl:text>
+      <xsl:text>   }&#xA;</xsl:text>
     </xsl:when>
     <xsl:otherwise>
       <xsl:text>   _insert_default("</xsl:text><xsl:value-of select="../name" />
@@ -222,23 +240,25 @@ void dt_confgen_init()
   <xsl:variable name="uui" select="../@ui"/>
 
   <xsl:text>   _insert_shortdescription("</xsl:text><xsl:value-of select="../name" />
+
   <xsl:if test="not($uui)">
     <xsl:text>", "</xsl:text>
   </xsl:if>
   <xsl:if test="$uui = 'yes'">
-    <xsl:text>", _("</xsl:text>
+    <xsl:text>", N_("</xsl:text>
   </xsl:if>
 
   <xsl:value-of select="."/>
 
   <xsl:if test="not($uui)">
-    <xsl:text>");</xsl:text>
+    <xsl:text>");
+</xsl:text>
   </xsl:if>
   <xsl:if test="$uui = 'yes'">
-    <xsl:text>"));</xsl:text>
+    <xsl:text>"));
+</xsl:text>
   </xsl:if>
 
-  <xsl:text>&#xA;</xsl:text>
 </xsl:template>
 
 <xsl:template match="longdescription">
@@ -252,19 +272,20 @@ void dt_confgen_init()
   </xsl:if>
 
   <xsl:if test="$uui = 'yes' and $des != ''">
-    <xsl:text>", _("</xsl:text>
+    <xsl:text>", N_("</xsl:text>
   </xsl:if>
 
   <xsl:value-of select="."/>
 
   <xsl:if test="not($uui) or $des = ''">
-    <xsl:text>");</xsl:text>
+    <xsl:text>");
+</xsl:text>
   </xsl:if>
   <xsl:if test="$uui = 'yes' and $des != ''">
-    <xsl:text>"));</xsl:text>
+    <xsl:text>"));
+</xsl:text>
   </xsl:if>
 
-  <xsl:text>&#xA;</xsl:text>
 </xsl:template>
 
 <xsl:template match="default">
@@ -282,11 +303,9 @@ void dt_confgen_init()
 <xsl:template match="enum" mode="value">
   <xsl:for-each select="option">
     <xsl:if test="number(.) != .">
-      <xsl:text>   const char *</xsl:text>
-      <xsl:value-of select="generate-id(.)" />
-      <xsl:text> = C_("preferences", "</xsl:text>
+      <xsl:text>   WRAP_TRANSLATION(C_("preferences", "</xsl:text>
       <xsl:value-of select="." />
-      <xsl:text>");&#xA;</xsl:text>
+      <xsl:text>"));&#xA;</xsl:text>
     </xsl:if>
   </xsl:for-each>
 </xsl:template>

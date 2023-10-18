@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2010-2022 darktable developers.
+    Copyright (C) 2010-2023 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
     You should have received a copy of the GNU General Public License
     along with darktable.  If not, see <http://www.gnu.org/licenses/>.
 */
+
 #include "common/collection.h"
 #include "common/selection.h"
 #include "common/darktable.h"
@@ -66,6 +67,7 @@ typedef struct dt_lib_tagging_t
     int expand_timeout, scroll_timeout, last_y;
     gboolean root, tag_source;
   } drag;
+  gboolean update_selected_tags;
 } dt_lib_tagging_t;
 
 typedef struct dt_tag_op_t
@@ -103,21 +105,17 @@ const char *name(dt_lib_module_t *self)
   return _("tagging");
 }
 
-const char **views(dt_lib_module_t *self)
+dt_view_type_flags_t views(dt_lib_module_t *self)
 {
-  static const char *v1[] = {"lighttable", "darkroom", "map", "tethering", NULL};
-  static const char *v2[] = {"lighttable", "map", "tethering", NULL};
-
   if(dt_conf_get_bool("plugins/darkroom/tagging/visible"))
-    return v1;
+    return DT_VIEW_LIGHTTABLE | DT_VIEW_DARKROOM | DT_VIEW_MAP | DT_VIEW_TETHERING;
   else
-    return v2;
+    return DT_VIEW_LIGHTTABLE | DT_VIEW_MAP | DT_VIEW_TETHERING;
 }
 
 uint32_t container(dt_lib_module_t *self)
 {
-  const dt_view_t *cv = dt_view_manager_get_current_view(darktable.view_manager);
-  if(cv->view((dt_view_t *)cv) == DT_VIEW_DARKROOM)
+  if(dt_view_get_current() == DT_VIEW_DARKROOM)
     return DT_UI_CONTAINER_PANEL_LEFT_CENTER;
   else
     return DT_UI_CONTAINER_PANEL_RIGHT_CENTER;
@@ -140,7 +138,6 @@ static void _unselect_all_in_view(GtkTreeView *view)
 
 static void _update_atdetach_buttons(dt_lib_module_t *self)
 {
-  dt_lib_cancel_postponed_update(self);
   dt_lib_tagging_t *d = (dt_lib_tagging_t *)self->data;
 
   const gboolean has_act_on = (dt_act_on_get_images_nb(FALSE, FALSE) > 0);
@@ -376,7 +373,7 @@ static void _init_treeview(dt_lib_module_t *self, const int which)
 
   if(which == 0) // tags of selected images
   {
-    const int imgsel = dt_control_get_mouse_over_id();
+    const dt_imgid_t imgsel = dt_control_get_mouse_over_id();
     no_sel = imgsel > 0 || dt_selected_images_count() == 1;
     count = dt_tag_get_attached(imgsel, &tags, d->dttags_flag ? FALSE : TRUE);
     view = d->attached_view;
@@ -595,15 +592,21 @@ static void _tree_select_show(GtkTreeViewColumn *col, GtkCellRenderer *renderer,
   g_object_set(renderer, "active", active, "inconsistent", inconsistent, NULL);
 }
 
-static void _postponed_update(dt_lib_module_t *self)
+void gui_update(dt_lib_module_t *self)
 {
-  _init_treeview(self, 0);
+  dt_lib_tagging_t *d = self->data;
+  if(d->update_selected_tags)
+    _init_treeview(self, 0);
+  d->update_selected_tags = FALSE;
+
   _update_atdetach_buttons(self);
 }
 
 static void _lib_tagging_redraw_callback(gpointer instance, dt_lib_module_t *self)
 {
-  dt_lib_queue_postponed_update(self, _postponed_update);
+  dt_lib_tagging_t *d = self->data;
+  d->update_selected_tags = TRUE;
+  dt_lib_gui_queue_update(self);
 }
 
 static void _lib_tagging_tags_changed_callback(gpointer instance, dt_lib_module_t *self)
@@ -618,7 +621,7 @@ static void _collection_updated_callback(gpointer instance, dt_collection_change
 {
   dt_lib_tagging_t *d = (dt_lib_tagging_t *)self->data;
   d->collection[0] = '\0';
-  _update_atdetach_buttons(self);
+  dt_lib_gui_queue_update(self);
 }
 
 static void _raise_signal_tag_changed(dt_lib_module_t *self)
@@ -883,7 +886,6 @@ static void _delete_tree_path(GtkTreeModel *model, GtkTreeIter *iter, gboolean r
 static void _lib_selection_changed_callback(gpointer instance, dt_lib_module_t *self)
 {
   dt_lib_tagging_t *d = (dt_lib_tagging_t *)self->data;
-  _init_treeview(self, 0);
   if(!d->tree_flag && d->suggestion_flag)
   {
     _init_treeview(self, 1);
@@ -892,7 +894,8 @@ static void _lib_selection_changed_callback(gpointer instance, dt_lib_module_t *
     _update_sel_on_tree(d->tree_flag ? GTK_TREE_MODEL(d->dictionary_treestore)
                                     : GTK_TREE_MODEL(d->dictionary_liststore));
 
-  _update_atdetach_buttons(self);
+  d->update_selected_tags = TRUE;
+  dt_lib_gui_queue_update(self);
 }
 
 static void _set_keyword(dt_lib_module_t *self)
@@ -1288,7 +1291,7 @@ static gboolean _click_on_view_attached(GtkWidget *view, GdkEventButton *event, 
       if(valid_tag)
       {
         gtk_tree_selection_select_path(selection, path);
-        _update_atdetach_buttons(self);
+        dt_lib_gui_queue_update(self);
         if(event->type == GDK_BUTTON_PRESS && event->button == 3)
         {
           _pop_menu_attached(view, event, self);
@@ -1476,8 +1479,11 @@ static void _pop_menu_dictionary_delete_tag(GtkWidget *menuitem, dt_lib_module_t
   if(img_count > 0 || dt_conf_get_bool("plugins/lighttable/tagging/ask_before_delete_tag"))
   {
     GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
-    GtkWidget *dialog = gtk_dialog_new_with_buttons(_("delete tag?"), GTK_WINDOW(win), GTK_DIALOG_DESTROY_WITH_PARENT,
-                                  _("cancel"), GTK_RESPONSE_NONE, _("delete"), GTK_RESPONSE_YES, NULL);
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(_("delete tag?"), GTK_WINDOW(win),
+                                                    GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                    _("_cancel"), GTK_RESPONSE_NONE,
+                                                    _("_delete"), GTK_RESPONSE_YES, NULL);
+    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_NONE);
     gtk_window_set_default_size(GTK_WINDOW(dialog), 300, -1);
     GtkWidget *area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -1564,8 +1570,11 @@ static void _pop_menu_dictionary_delete_node(GtkWidget *menuitem, dt_lib_module_
   if(tag_count == 0) return;
 
   GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
-  GtkWidget *dialog = gtk_dialog_new_with_buttons( _("delete node?"), GTK_WINDOW(win), GTK_DIALOG_DESTROY_WITH_PARENT,
-                                _("cancel"), GTK_RESPONSE_NONE, _("delete"), GTK_RESPONSE_YES, NULL);
+  GtkWidget *dialog = gtk_dialog_new_with_buttons(_("delete node?"), GTK_WINDOW(win),
+                                                  GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                  _("_cancel"), GTK_RESPONSE_NONE,
+                                                  _("_delete"), GTK_RESPONSE_YES, NULL);
+  gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_NONE);
   gtk_window_set_default_size(GTK_WINDOW(dialog), 300, -1);
   GtkWidget *area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -1625,6 +1634,13 @@ static void _pop_menu_dictionary_delete_node(GtkWidget *menuitem, dt_lib_module_
   g_free(tagname);
 }
 
+static void _name_changed(GtkEntry *entry,
+                          GtkDialog *dialog)
+{
+  const gchar *name = gtk_entry_get_text(entry);
+  gtk_dialog_set_response_sensitive(dialog, GTK_RESPONSE_YES, name && *name);
+}
+
 // create tag allows the user to create a single tag, which can be an element of the hierarchy or not
 static void _pop_menu_dictionary_create_tag(GtkWidget *menuitem, dt_lib_module_t *self)
 {
@@ -1645,8 +1661,11 @@ static void _pop_menu_dictionary_create_tag(GtkWidget *menuitem, dt_lib_module_t
         DT_LIB_TAGGING_COL_PATH, &path, DT_LIB_TAGGING_COL_ID, &tagid, -1);
 
   GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
-  GtkWidget *dialog = gtk_dialog_new_with_buttons(_("create tag"), GTK_WINDOW(win), GTK_DIALOG_DESTROY_WITH_PARENT,
-                                       _("cancel"), GTK_RESPONSE_NONE, _("save"), GTK_RESPONSE_YES, NULL);
+  GtkWidget *dialog = gtk_dialog_new_with_buttons(_("create tag"), GTK_WINDOW(win),
+                                                  GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                  _("_cancel"), GTK_RESPONSE_NONE,
+                                                  _("_save"), GTK_RESPONSE_YES, NULL);
+  gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
   gtk_window_set_default_size(GTK_WINDOW(dialog), 300, -1);
   GtkWidget *area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -1658,6 +1677,9 @@ static void _pop_menu_dictionary_create_tag(GtkWidget *menuitem, dt_lib_module_t
   label = gtk_label_new(_("name: "));
   gtk_box_pack_start(GTK_BOX(box), label, FALSE, TRUE, 0);
   GtkWidget *entry = gtk_entry_new();
+  gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
+  gtk_dialog_set_response_sensitive(GTK_DIALOG(dialog), GTK_RESPONSE_YES, FALSE);
+  g_signal_connect(entry, "changed", G_CALLBACK(_name_changed), dialog);
   gtk_box_pack_end(GTK_BOX(box), entry, TRUE, TRUE, 0);
 
   GtkWidget *category;
@@ -1775,8 +1797,11 @@ static void _pop_menu_dictionary_edit_tag(GtkWidget *menuitem, dt_lib_module_t *
   }
 
   GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
-  GtkWidget *dialog = gtk_dialog_new_with_buttons(_("edit"), GTK_WINDOW(win), GTK_DIALOG_DESTROY_WITH_PARENT,
-                                       _("cancel"), GTK_RESPONSE_NONE, _("save"), GTK_RESPONSE_YES, NULL);
+  GtkWidget *dialog = gtk_dialog_new_with_buttons(_("edit"), GTK_WINDOW(win),
+                                                  GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                  _("_cancel"), GTK_RESPONSE_NONE,
+                                                  _("_save"), GTK_RESPONSE_YES, NULL);
+  gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
   gtk_window_set_default_size(GTK_WINDOW(dialog), 300, -1);
   GtkWidget *area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -1805,12 +1830,14 @@ static void _pop_menu_dictionary_edit_tag(GtkWidget *menuitem, dt_lib_module_t *
   label = gtk_label_new(_("name: "));
   gtk_box_pack_start(GTK_BOX(box), label, FALSE, TRUE, 0);
   GtkWidget *entry = gtk_entry_new();
+  gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
+  g_signal_connect(entry, "changed", G_CALLBACK(_name_changed), dialog);
   gtk_entry_set_text(GTK_ENTRY(entry), subtag ? subtag : tagname);
   gtk_box_pack_end(GTK_BOX(box), entry, TRUE, TRUE, 0);
 
   gint flags = 0;
-  GtkWidget *category;
-  GtkWidget *private;
+  GtkWidget *category = NULL;
+  GtkWidget *private = NULL;
   GtkTextBuffer *buffer = NULL;
   if(tagid)
   {
@@ -1997,7 +2024,7 @@ static gboolean _apply_rename_path(GtkWidget *dialog, const char *tagname,
 
       GtkWidget *warning_dialog = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
                       GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE,
-                      _("at least one new tagname (%s) already exists, aborting."), new_tagname);
+                      _("at least one new tag name (%s) already exists, aborting"), new_tagname);
       gtk_dialog_run(GTK_DIALOG(warning_dialog));
       gtk_widget_destroy(warning_dialog);
     }
@@ -2049,8 +2076,11 @@ static void _pop_menu_dictionary_change_path(GtkWidget *menuitem, dt_lib_module_
   if(tag_count == 0) return;
 
   GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
-  GtkWidget *dialog = gtk_dialog_new_with_buttons(_("change path"), GTK_WINDOW(win), GTK_DIALOG_DESTROY_WITH_PARENT,
-                                       _("cancel"), GTK_RESPONSE_NONE, _("save"), GTK_RESPONSE_YES, NULL);
+  GtkWidget *dialog = gtk_dialog_new_with_buttons(_("change path"), GTK_WINDOW(win),
+                                                  GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                  _("_cancel"), GTK_RESPONSE_NONE,
+                                                  _("_save"), GTK_RESPONSE_YES, NULL);
+  gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_YES);
   gtk_window_set_default_size(GTK_WINDOW(dialog), 300, -1);
   GtkWidget *area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -2075,6 +2105,7 @@ static void _pop_menu_dictionary_change_path(GtkWidget *menuitem, dt_lib_module_
   g_free(text);
 
   GtkWidget *entry = gtk_entry_new();
+  gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
   gtk_entry_set_text(GTK_ENTRY(entry), tagname);
   gtk_box_pack_start(GTK_BOX(vbox), entry, FALSE, TRUE, 0);
 
@@ -2343,7 +2374,7 @@ static gboolean _click_on_view_dictionary(GtkWidget *view, GdkEventButton *event
       else
       {
         gtk_tree_selection_select_path(selection, path);
-        _update_atdetach_buttons(self);
+        dt_lib_gui_queue_update(self);
         if(button_pressed == 3)
         {
           _pop_menu_dictionary(view, event, self);
@@ -2707,7 +2738,7 @@ void gui_reset(dt_lib_module_t *self)
   gtk_entry_set_text(d->entry, "");
   _set_keyword(self);
   _init_treeview(self, 1);
-  _update_atdetach_buttons(self);
+  dt_lib_gui_queue_update(self);
 }
 
 int position(const dt_lib_module_t *self)
@@ -2817,7 +2848,7 @@ static gboolean _completion_match_func(GtkEntryCompletion *completion, const gch
 
 static void _tree_selection_changed(GtkTreeSelection *treeselection, gpointer data)
 {
-  _update_atdetach_buttons((dt_lib_module_t *)data);
+  dt_lib_gui_queue_update((dt_lib_module_t *)data);
 }
 
 static void _dnd_clear_root(dt_lib_module_t *self)
@@ -3041,7 +3072,6 @@ void gui_init(dt_lib_module_t *self)
   dt_lib_tagging_t *d = (dt_lib_tagging_t *)calloc(sizeof(dt_lib_tagging_t),1);
   self->data = (void *)d;
   d->last_tag = NULL;
-  self->timeout_handle = 0;
 
   self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
@@ -3060,7 +3090,7 @@ void gui_init(dt_lib_module_t *self)
 
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(box), TRUE, TRUE, 0);
   view = GTK_TREE_VIEW(gtk_tree_view_new());
-  w = dt_ui_scroll_wrap(GTK_WIDGET(view), 200, "plugins/lighttable/tagging/heightattachedwindow");
+  w = dt_ui_resize_wrap(GTK_WIDGET(view), 200, "plugins/lighttable/tagging/heightattachedwindow");
   gtk_box_pack_start(box, w, TRUE, TRUE, 0);
   d->attached_view = view;
   gtk_tree_view_set_enable_search(view, FALSE);
@@ -3094,11 +3124,10 @@ void gui_init(dt_lib_module_t *self)
   gtk_tree_selection_set_mode(gtk_tree_view_get_selection(view), GTK_SELECTION_SINGLE);
   gtk_tree_view_set_model(view, GTK_TREE_MODEL(liststore));
   g_object_unref(liststore);
-  gtk_widget_set_tooltip_text(GTK_WIDGET(view), _("attached tags,"
+  gtk_widget_set_tooltip_text(GTK_WIDGET(view), _("attached tags"
                                                   "\npress Delete or double-click to detach"
                                                   "\nright-click for other actions on attached tag,"
-                                                  "\npress Tab to give the focus to entry,"
-                                                  "\nctrl+scroll to resize the window"));
+                                                  "\nTab to give the focus to entry"));
   g_signal_connect(G_OBJECT(view), "button-press-event", G_CALLBACK(_click_on_view_attached), (gpointer)self);
   g_signal_connect(G_OBJECT(view), "key-press-event", G_CALLBACK(_attached_key_pressed), (gpointer)self);
   g_signal_connect(gtk_tree_view_get_selection(view), "changed", G_CALLBACK(_tree_selection_changed), self);
@@ -3165,7 +3194,7 @@ void gui_init(dt_lib_module_t *self)
 
   // dictionary_view tree view
   view = GTK_TREE_VIEW(gtk_tree_view_new());
-  w = dt_ui_scroll_wrap(GTK_WIDGET(view), 200, "plugins/lighttable/tagging/heightdictionarywindow");
+  w = dt_ui_resize_wrap(GTK_WIDGET(view), 200, "plugins/lighttable/tagging/heightdictionarywindow");
   gtk_box_pack_start(box, w, TRUE, TRUE, 0);
   d->dictionary_view = view;
   gtk_tree_view_set_enable_search(view, FALSE);
@@ -3209,12 +3238,11 @@ void gui_init(dt_lib_module_t *self)
 
   gtk_tree_selection_set_mode(gtk_tree_view_get_selection(view), GTK_SELECTION_SINGLE);
   gtk_widget_set_tooltip_text(GTK_WIDGET(view), _("tag dictionary,"
-                                                  "\npress Enter or double-click to attach selected tag on selected images,"
-                                                  "\nidem for shift+Enter plus gives the focus to entry,"
-                                                  "\nshift+click to fully expand the selected tag,"
-                                                  "\nright-click for other actions on selected tag,"
-                                                  "\npress shift+Tab to give the focus to entry,"
-                                                  "\nctrl+scroll to resize the window"));
+                                                  "\nEnter or double-click to attach selected tag on selected images"
+                                                  "\nshift+Enter idem plus gives the focus to entry"
+                                                  "\nshift+click to fully expand the selected tag"
+                                                  "\nright-click for other actions on selected tag"
+                                                  "\nshift+Tab to give the focus to entry"));
 
   g_signal_connect(G_OBJECT(view), "button-press-event", G_CALLBACK(_click_on_view_dictionary), (gpointer)self);
   g_signal_connect(G_OBJECT(view), "key-press-event", G_CALLBACK(_dictionary_key_pressed), (gpointer)self);
@@ -3276,7 +3304,6 @@ void gui_init(dt_lib_module_t *self)
   _init_treeview(self, 0);
   _set_keyword(self);
   _init_treeview(self, 1);
-  _update_atdetach_buttons(self);
 
   dt_action_register(DT_ACTION(self), N_("tag"), _lib_tagging_tag_show, GDK_KEY_t, GDK_CONTROL_MASK);
   dt_action_register(DT_ACTION(self), N_("redo last tag"), _lib_tagging_tag_redo, GDK_KEY_t, GDK_MOD1_MASK);
@@ -3284,7 +3311,6 @@ void gui_init(dt_lib_module_t *self)
 
 void gui_cleanup(dt_lib_module_t *self)
 {
-  dt_lib_cancel_postponed_update(self);
   dt_lib_tagging_t *d = (dt_lib_tagging_t *)self->data;
 
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_lib_tagging_redraw_callback), self);
@@ -3469,9 +3495,10 @@ void _menuitem_preferences(GtkMenuItem *menuitem, dt_lib_module_t *self)
   GtkWidget *win = dt_ui_main_window(darktable.gui->ui);
   GtkWidget *dialog = gtk_dialog_new_with_buttons(_("tagging settings"), GTK_WINDOW(win),
                                                   GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                 _("cancel"), GTK_RESPONSE_NONE,
-                                                 _("save"), GTK_RESPONSE_ACCEPT, NULL);
+                                                  _("_cancel"), GTK_RESPONSE_NONE,
+                                                  _("_save"), GTK_RESPONSE_ACCEPT, NULL);
   g_signal_connect(dialog, "key-press-event", G_CALLBACK(dt_handle_dialog_enter), NULL);
+  gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_ACCEPT);
   dt_prefs_init_dialog_tagging(dialog);
 
 #ifdef GDK_WINDOWING_QUARTZ
@@ -3486,7 +3513,7 @@ void _menuitem_preferences(GtkMenuItem *menuitem, dt_lib_module_t *self)
   if(!d->tree_flag && d->suggestion_flag)
   {
     _init_treeview(self, 1);
-    _update_atdetach_buttons(self);
+    dt_lib_gui_queue_update(self);
   }
 }
 

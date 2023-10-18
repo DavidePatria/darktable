@@ -18,9 +18,9 @@
 
 /*** This has been tested with GTK 3.24 on Gnome ***/
 
-/*--------------------------------------
-  - Perceptually uniform grey gradient -
-  --------------------------------------*/
+/*----------------------------------------------------------
+  - Perceptually uniform grey gradient on LCH color space. -
+  --------------------------------------------------------*/
 
 /* grey_00 = pure black is forbidden for visual assessment */
 @define-color grey_00 #000000;
@@ -187,7 +187,7 @@ Why that? Just because it's a developer choice and most classes use underscore i
 @define-color thumbnail_star_bg_color @grey_35;
 @define-color thumbnail_star_hover_color @grey_80;
 @define-color thumbnail_fg_color @grey_55;
-@define-color thumbnail_bg50_color @grey_100;
+@define-color thumbnail_bg50_color @grey_95;
 @define-color thumbnail_selected_bg_color @grey_70;
 @define-color thumbnail_hover_bg_color @grey_85;
 @define-color thumbnail_hover_fg_color @grey_90;
@@ -205,7 +205,7 @@ Why that? Just because it's a developer choice and most classes use underscore i
 
 /* Brushes */
 @define-color brush_cursor alpha(white, .9);
-@define-color brush_trace alpha(black, .8);
+@define-color brush_trace alpha(black, .6);
 
 /* Graphs : histogram, navigation thumbnail and some items on tone curve */
 @define-color graph_bg @grey_15;
@@ -369,6 +369,7 @@ textview
 
 .combo,
 entry,
+#dt-metadata-multi,
 textview
 {
   padding: 0.07em 0.28em;   /* be sure to keep 0.07em padding, at least to scrolledwindow textview part. part of workaround just below */
@@ -595,6 +596,22 @@ dialog .sidebar row:selected:hover label,
   font-size: 1.1em;
 }
 
+#snapshot-button entry,
+#iop-module-name
+{
+  font-weight: lighter;
+  font-family: sans-serif;
+  font-size: 0.8em;
+}
+
+#iop-module-name-error
+{
+  font-weight: bold;
+  font-size: 1.1em;
+  padding-left: 0.5em;
+  color: red;
+}
+
 .dt_module_focus #iop-panel-label/* set focus mode */
 {
   color: shade(@plugin_label_color, 1.2);
@@ -648,7 +665,7 @@ dialog .sidebar row:selected:hover label,
 /*-------------------
   - Scope/Histogram -
   -------------------*/
-#main-histogram buttonbox
+#main-histogram .button_box
 {
   margin: 0.21em;
 }
@@ -659,15 +676,8 @@ dialog .sidebar row:selected:hover label,
   min-width: 1em;
 }
 
-/* be sure all color icons have (nearly) same size ; needed has red color is in stack widget and this change how the size is rendered */
-#main-histogram #green-channel-button,
-#main-histogram #blue-channel-button
-{
-  min-width: 1.1em;
-}
-
 /* set background color and color of scope/histogram buttons */
-#main-histogram .dt_module_btn:not(.toggle)
+#main-histogram .dt_module_btn:not(.rgb_toggle)
 {
   color: alpha(@field_selected_fg, 0.56);
   background-color: alpha(darker(@button_bg),0.8);
@@ -834,6 +844,7 @@ menuitem > arrow
 }
 
 /* and set menuitem related to sort of combobox like metadata presets in import module */
+menuitem label,
 #view-dropdown button,
 #view-dropdown menuitem,
 #view-label
@@ -1030,12 +1041,6 @@ treeview header label
   padding: 0.14em;
 }
 
-/* be sure spinbutton is displayed without alpha background on treeview */
-treeview spinbutton
-{
-  background-color: @field_active_bg;
-}
-
 /* set margin around treeview (need to be applied on scrolledwindow which is a direct parent) */
 .dt_spacing_sw scrolledwindow
 {
@@ -1095,8 +1100,13 @@ treeview spinbutton
   margin-right: 1.75em;
 }
 
-#preferences-notebook combobox,
-#preferences-notebook spinbutton,
+#preference_non_default
+{
+  font-weight: bolder;
+  margin: 0.07em;
+  min-width: 1em;
+}
+
 #preset-controls entry,
 #shortcut-controls entry
 {
@@ -1474,6 +1484,19 @@ border-bottom: 0.07em solid alpha(@selected_bg_color, 0.75);
   background-color: @graph_bg;
 }
 
+#nav-zoom
+{
+  background-color: alpha(@darkroom_bg_color, 0.25);
+  color: @graph_fg_active;
+  border-top-left-radius: 0.21em;
+  margin: 0;
+}
+
+#nav-zoom:hover
+{
+  background-color: alpha(@darkroom_bg_color, 0.5);
+}
+
 /* search boxes (background color is set on collect module part above ; to be the same as other filters in quick filter bar) */
 #right .search  /* set only search box margin in modules panel */
 {
@@ -1590,6 +1613,18 @@ progressbar progress
   color: @disabled_fg_color;
 }
 
+#dt-metadata-changed
+{
+  font-style: italic;
+  text-decoration-line: underline;
+}
+
+#dt-metadata-multi
+{
+  font-style: italic;
+  margin: 0.07em; /* match textview */
+}
+
 /*---------------------
   - Set color pickers -
   ---------------------*/
@@ -1618,7 +1653,7 @@ progressbar progress
    be careful to not change that unless you really now what you do */
 #picker-black
 {
-  color: @grey_00;
+  color: @grey_05;
   border: 0;
 }
 
@@ -1630,7 +1665,7 @@ progressbar progress
 
 #picker-white
 {
-  color: @grey_100;
+  color: @grey_95;
   border: 0;
 }
 
@@ -1639,6 +1674,7 @@ progressbar progress
   ------------------------------------------------------------------*/
 /*** All states options are designed below, active, hover, selected, disabled and check states ***/
 /* Main states */
+.default, /* dialog button that activates with Enter */
 .dt_history_items:active,
 .dt_history_items:checked,
 button:active,
@@ -1652,9 +1688,9 @@ entry:checked,
 filechooser *:selected,
 menuitem:active,
 menuitem:selected,
-messagedialog .default,  /* this show that a button in confirmation action pop-up has the focus (no by default) */
 treeview *:selected:not(check),
-treeview *:checked:not(check)
+treeview *:checked:not(check),
+#main-histogram .dt_module_btn:checked:not(.rgb_toggle)
 {
   background-color: @field_selected_bg;
   color: @field_selected_fg;
@@ -1679,7 +1715,7 @@ radiobutton:hover label,
 treeview:not(#lutname) *:hover:not(check),
 #dt-range-date-popup .text-button:hover,
 #lens-module .text-button:hover,
-#main-histogram .dt_module_btn:hover:not(.toggle),
+#main-histogram .dt_module_btn:hover:not(.rgb_toggle),
 #non-flat:hover,
 #view-label:hover,
 #view-dropdown .combo:hover
@@ -1719,7 +1755,9 @@ button:checked cellview
 
 /* Treeviews, entries and filechoosers states */
 menuitem:not(.dt_transparent_background) check,  /* be sure transparent background is applied to preset and blend menus */
-treeview check /* set specific background color about check buttons like in copy/paste dialog window */
+treeview check, /* set specific background color about check buttons like in copy/paste dialog window */
+treeview entry, /* be sure entry is displayed without alpha background on treeview */
+treeview spinbutton /* and same thing for spinbutton */
 {
   background-color: @field_active_bg;
   border-color: @border_color;
@@ -1734,6 +1772,7 @@ treeview *:active
   color: @field_active_fg;
 }
 
+#preferences-box .dt_bauhaus,
 treeview check:selected
 {
   background-color: @button_bg;
@@ -1800,6 +1839,7 @@ treeview#delete-dialog:selected
 {
    border-top: 2.4em solid @plugin_bg_color;
 }
+
 
 /*** --- Thumbtable css part ---
 
@@ -2081,9 +2121,9 @@ Details :
 .dt_overlays_mixed #thumb-main:hover .dt_thumb_btn,
 .dt_overlays_mixed #thumb-main:selected .dt_thumb_btn,
 .dt_overlays_mixed #thumb-main:hover #thumb-bottom-label,
-.dt_overlays_hover_block #thumb-main:hover .dt_thumb_btn,
-.dt_overlays_hover_block #thumb-main:hover .dt_thumb_btn:active,
-.dt_overlays_hover_block #thumb-main:hover #thumb-bottom-label
+.dt_overlays_hover_block #thumb-image:hover .dt_thumb_btn,
+.dt_overlays_hover_block #thumb-image:hover .dt_thumb_btn:active,
+.dt_overlays_hover_block #thumb-image:hover #thumb-bottom-label
 {
   color: @thumbnail_font_color;
 }
@@ -2132,7 +2172,7 @@ Details :
 .dt_overlays_always #thumb-main:hover #thumb-star:hover,
 .dt_overlays_always_extended #thumb-main:hover #thumb-star:hover,
 .dt_overlays_mixed #thumb-main:hover #thumb-star:hover,
-.dt_overlays_hover_block #thumb-main:hover #thumb-star:hover
+.dt_overlays_hover_block #thumb-image:hover #thumb-star:hover
 {
   color: @thumbnail_star_hover_color;
   background-color: @thumbnail_star_bg_color;
@@ -2144,7 +2184,7 @@ Details :
 .dt_overlays_always #thumb-main:hover #thumb-group-audio:hover,
 .dt_overlays_always_extended #thumb-main:hover #thumb-group-audio:hover,
 .dt_overlays_mixed #thumb-main:hover #thumb-group-audio:hover,
-.dt_overlays_hover_block #thumb-main:hover #thumb-group-audio:hover
+.dt_overlays_hover_block #thumb-image:hover #thumb-group-audio:hover
 {
   color: @thumbnail_fg_color;
 }

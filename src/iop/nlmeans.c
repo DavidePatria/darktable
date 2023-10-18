@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2011-2020 darktable developers.
+    Copyright (C) 2011-2023 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -32,10 +32,6 @@
 #include <gtk/gtk.h>
 #include <stdlib.h>
 
-#if defined(__SSE__)
-#include <xmmintrin.h>
-#endif
-
 // which version of the non-local means code should be used?  0=old (this file), 1=new (src/common/nlmeans_core.c)
 #define USE_NEW_IMPL_CL 0
 
@@ -46,12 +42,6 @@
 // this is the version of the modules parameters,
 // and includes version information about compile-time dt
 DT_MODULE_INTROSPECTION(2, dt_iop_nlmeans_params_t)
-
-typedef struct dt_iop_nlmeans_params_v1_t
-{
-  float luma;
-  float chroma;
-} dt_iop_nlmeans_params_v1_t;
 
 typedef struct dt_iop_nlmeans_params_t
 {
@@ -102,22 +92,48 @@ const char **description(struct dt_iop_module_t *self)
                                       _("non-linear, Lab, display-referred"));
 }
 
-int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
+dt_iop_colorspace_type_t default_colorspace(dt_iop_module_t *self,
+                                            dt_dev_pixelpipe_t *pipe,
+                                            dt_dev_pixelpipe_iop_t *piece)
 {
   return IOP_CS_LAB;
 }
 
-int legacy_params(dt_iop_module_t *self, const void *const old_params, const int old_version,
-                  void *new_params, const int new_version)
+int legacy_params(dt_iop_module_t *self,
+                  const void *const old_params,
+                  const int old_version,
+                  void **new_params,
+                  int32_t *new_params_size,
+                  int *new_version)
 {
-  if(old_version == 1 && new_version == 2)
+  typedef struct dt_iop_nlmeans_params_v2_t
   {
-    dt_iop_nlmeans_params_v1_t *o = (dt_iop_nlmeans_params_v1_t *)old_params;
-    dt_iop_nlmeans_params_t *n = (dt_iop_nlmeans_params_t *)new_params;
+    float radius;
+    float strength;
+    float luma;
+    float chroma;
+  } dt_iop_nlmeans_params_v2_t;
+
+  if(old_version == 1)
+  {
+    typedef struct dt_iop_nlmeans_params_v1_t
+    {
+      float luma;
+      float chroma;
+    } dt_iop_nlmeans_params_v1_t;
+
+    const dt_iop_nlmeans_params_v1_t *o = (dt_iop_nlmeans_params_v1_t *)old_params;
+    dt_iop_nlmeans_params_v2_t *n =
+      (dt_iop_nlmeans_params_v2_t *)malloc(sizeof(dt_iop_nlmeans_params_v2_t));
+
     n->luma = o->luma;
     n->chroma = o->chroma;
     n->strength = 100.0f;
     n->radius = 3;
+
+    *new_params = n;
+    *new_params_size = sizeof(dt_iop_nlmeans_params_v2_t);
+    *new_version = 2;
     return 0;
   }
   return 1;
@@ -167,10 +183,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   const int devid = piece->pipe->devid;
   cl_mem dev_U2 = dt_opencl_alloc_device_buffer(devid, sizeof(float) * 4 * width * height);
   if(dev_U2 == NULL)
-  {
-    dt_print(DT_DEBUG_OPENCL, "[opencl_nlmeans] couldn't allocate GPU buffer\n");
-    return FALSE;
-  }
+     return DT_OPENCL_SYSMEM_ALLOCATION;
 
   const dt_nlmeans_param_t params =
   {
@@ -201,10 +214,7 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   }
   // clean up and check whether all kernels ran successfully
   dt_opencl_release_mem_object(dev_U2);
-  if(err == CL_SUCCESS)
-    return TRUE;
-  dt_print(DT_DEBUG_OPENCL, "[opencl_nlmeans] couldn't enqueue kernel! %s\n", cl_errstr(err));
-  return FALSE;
+  return err;
 
 #else // old code
   const int width = roi_in->width;
@@ -321,24 +331,13 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
   dt_opencl_set_kernel_args(devid, gd->kernel_nlmeans_finish, 0, CLARG(dev_in), CLARG(dev_U2), CLARG(dev_out),
     CLARG(width), CLARG(height), CLARG(weight));
   err = dt_opencl_enqueue_kernel_2d(devid, gd->kernel_nlmeans_finish, sizes);
-  if(err != CL_SUCCESS) goto error;
-
-  dt_opencl_release_mem_object(dev_U2);
-  for(int k = 0; k < NUM_BUCKETS; k++)
-  {
-    dt_opencl_release_mem_object(buckets[k]);
-  }
-  return TRUE;
 
 error:
   dt_opencl_release_mem_object(dev_U2);
   for(int k = 0; k < NUM_BUCKETS; k++)
-  {
-    dt_opencl_release_mem_object(buckets[k]);
-  }
+     dt_opencl_release_mem_object(buckets[k]);
 
-  dt_print(DT_DEBUG_OPENCL, "[opencl_nlmeans] couldn't enqueue kernel! %s\n", cl_errstr(err));
-  return FALSE;
+  return err;
 #endif /* USE_NEW_IMPL_CL */
 }
 #endif
@@ -361,12 +360,13 @@ void tiling_callback(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t
   return;
 }
 
-static void process_cpu(dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
-                        void *const ovoid, const dt_iop_roi_t *const roi_in,
-                        const dt_iop_roi_t *const roi_out,
-                        void (*denoiser)(const float *const inbuf, float *const outbuf,
-                                         const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out,
-                                         const dt_nlmeans_param_t *const params))
+void process(
+        struct dt_iop_module_t *self,
+        dt_dev_pixelpipe_iop_t *piece,
+        const void *const ivoid,
+        void *const ovoid,
+        const dt_iop_roi_t *const roi_in,
+        const dt_iop_roi_t *const roi_out)
 {
   // this is called for preview and full pipe separately, each with its own pixelpipe piece.
   // get our data struct:
@@ -399,27 +399,9 @@ static void process_cpu(dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
                                       .search_radius = K,
                                       .decimate = decimate,
                                       .norm = norm2 };
-  denoiser(ivoid,ovoid,roi_in,roi_out,&params);
-  if(piece->pipe->mask_display & DT_DEV_PIXELPIPE_DISPLAY_MASK)
-    dt_iop_alpha_copy(ivoid, ovoid, roi_out->width, roi_out->height);
-}
 
-void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
-             void *const ovoid, const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out)
-{
-  process_cpu(piece,ivoid,ovoid,roi_in,roi_out,nlmeans_denoise);
-  return;
+  nlmeans_denoise(ivoid, ovoid, roi_in, roi_out, &params);
 }
-
-#if defined(__SSE__)
-/** process, all real work is done here. */
-void process_sse2(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
-                  void *const ovoid, const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out)
-{
-  process_cpu(piece,ivoid,ovoid,roi_in,roi_out,nlmeans_denoise_sse2);
-  return;
-}
-#endif
 
 void init_global(dt_iop_module_so_t *module)
 {
@@ -496,4 +478,3 @@ void gui_init(dt_iop_module_t *self)
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-
